@@ -1177,7 +1177,7 @@ async function initCloud() {
   cloud.available = true;
   renderChrome();
   renderView();
-  cloud.auth.getRedirectResult().catch((err) => toast(authMessage(err)));
+  cloud.auth.getRedirectResult().catch((err) => { if (err && err.code !== "auth/network-request-failed") toast(authMessage(err)); });
   cloud.auth.onAuthStateChanged((user) => { if (user) startCloud(user); else stopCloud(); });
 }
 function authMessage(err) {
@@ -1231,6 +1231,7 @@ function startCloud(user) {
   if (state.loaded) eventsChanged(); else renderView();
   renderChrome();
   cloud.unsub = eventsCol().onSnapshot({ includeMetadataChanges: true }, (snap) => {
+    if (snap.metadata.fromCache && !cloud.serverSeen && !snap.docs.length) return;
     cloud.pending = snap.metadata.hasPendingWrites;
     cloud.offline = snap.metadata.fromCache;
     if (!snap.metadata.fromCache) cloud.serverSeen = true;

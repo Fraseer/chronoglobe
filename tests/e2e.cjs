@@ -73,8 +73,9 @@ function check(name, ok, info) {
 
   async function newPage(opts = {}, init) {
     const ctx = await browser.newContext({ reducedMotion: "reduce", ...opts });
-    // keep tests offline: web fonts fall back to system faces
+    // keep tests offline: web fonts fall back to system faces, and sync stays off unless a test turns it on
     await ctx.route(/fonts\.(googleapis|gstatic)\.com/, (r) => r.fulfill({ body: "", contentType: "text/css" }));
+    await ctx.route("**/firebase-config.js", (r) => r.fulfill({ body: "window.CHRONOGLOBE_FIREBASE = null;", contentType: "text/javascript" }));
     const page = await ctx.newPage();
     page.on("pageerror", (e) => errors.push(e.message));
     page.on("console", (m) => { if (m.type() === "error") errors.push(m.text()); });

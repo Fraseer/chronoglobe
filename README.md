@@ -27,7 +27,7 @@ With a Firebase project set in `firebase-config.js`, a **Sign in to sync** butto
 ### Setting up Firebase
 
 1. Create a project at <https://console.firebase.google.com> (the free Spark plan is plenty).
-2. **Add app → Web**, register it, and copy the `firebaseConfig` object into `firebase-config.js` as `window.CHRONOGLOBE_FIREBASE = { ... }`. These values identify the project; they aren't secrets.
+2. **Add app → Web** and register it. Firebase then shows a snippet starting with `import { initializeApp } from "firebase/app"`; that form is for build tools and won't run here. Copy only the values inside `const firebaseConfig = { ... }` into `firebase-config.js` as `window.CHRONOGLOBE_FIREBASE = { apiKey: "...", authDomain: "...", ... };` (the app loads Firebase itself; `measurementId` isn't needed). These values identify the project; they aren't secrets.
 3. **Authentication → Sign-in method → Google → Enable**. Then **Authentication → Settings → Authorized domains → Add domain** with the site's domain (for example `fraseer.github.io`).
 4. **Firestore Database → Create database** in production mode, then paste `firestore.rules` into the **Rules** tab and **Publish**.
 
