@@ -10,6 +10,10 @@
   --sand-deep: #bea77c;
   --sand-wash: rgba(205, 185, 146, 0.34);
   --sage-wash: rgba(195, 205, 146, 0.42);
+  /* lit points: a white-hot centre fading through sand into a warm haze */
+  --flash-core: #fffcf2;
+  --glow: rgba(196, 158, 92, 0.62);
+  --glow-edge: rgba(196, 158, 92, 0);
 
   --bg: #f3f1eb;
   --panel: #fbfaf7;
@@ -125,9 +129,9 @@ button, input, select, textarea { font: inherit; color: inherit; }
 }
 .legend li { display: inline-flex; align-items: center; gap: 6px; }
 .sw { width: 10px; height: 10px; border-radius: 50%; display: inline-block; flex: none; }
-.sw-match { background: var(--sand); box-shadow: 0 0 0 1.5px var(--ink), 0 0 0 4.5px var(--sand-wash); }
+.sw-match { width: 16px; height: 16px; margin: -3px; background: radial-gradient(circle, var(--flash-core) 0 20%, var(--sand) 42%, var(--glow) 68%, var(--glow-edge) 100%); }
 .sw-other { width: 6px; height: 6px; background: var(--dot); box-shadow: 0 0 0 1.5px var(--halo); margin: 0 2px; }
-.sw-sel { border: 2.5px solid var(--rose); box-shadow: 0 0 0 1px var(--ink); }
+.sw-sel { border: 2.5px solid var(--rose); }
 .gctrl { position: absolute; right: max(12px, env(safe-area-inset-right, 0px)); bottom: 12px; display: flex; gap: 6px; align-items: center; }
 
 .tip {
@@ -196,7 +200,7 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .ev:hover { background: var(--raised); border-color: var(--line); }
 .ev[aria-current="true"] { background: var(--raised); border-color: var(--line-2); }
 .ev .mk { width: 7px; height: 7px; border-radius: 50%; background: var(--line-2); align-self: center; }
-.ev.is-match .mk { background: var(--sand); opacity: var(--s, 1); box-shadow: 0 0 0 1.5px var(--ink); }
+.ev.is-match .mk { background: radial-gradient(circle, var(--flash-core) 0 25%, var(--sand) 55%); opacity: var(--s, 1); box-shadow: 0 0 6px 2px var(--glow); }
 .ev[aria-current="true"] .mk { background: var(--rose); opacity: 1; box-shadow: 0 0 0 1.5px var(--ink); }
 .ev .y { font-family: var(--font-mono); font-size: 12px; color: var(--ink-2); font-variant-numeric: tabular-nums; }
 .ev.is-match .y { color: var(--ink); font-weight: 600; }

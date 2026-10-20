@@ -141,7 +141,7 @@ function check(name, ok, info) {
     await g.mouse.move(tr.x + x0, tr.y + 40); await g.mouse.down();
     const before = await view();
     if (fast) await g.mouse.move(tr.x + x0 + 150, tr.y + 40, { steps: 15 });
-    else for (let i = 1; i <= 15; i++) { await g.mouse.move(tr.x + x0 + i * 10, tr.y + 40); await g.waitForTimeout(110); }
+    else for (let i = 1; i <= 15; i++) { await g.waitForTimeout(110); await g.mouse.move(tr.x + x0 + i * 10, tr.y + 40); }
     await g.waitForTimeout(150);
     const during = await g.evaluate(() => window.__chronoglobe.labelsShown());
     await g.mouse.up();

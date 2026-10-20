@@ -207,8 +207,9 @@ function normEvent(id, d) {
 }
 const byId = (id) => state.events.find((e) => e.id === id) || null;
 // events that drop out of the time window fade on the globe instead of vanishing
-const FADE_MS = 2600;
+const FADE_MS = 2000;
 const afterglow = new Map(); // id -> { s: strength when it left, t: when it left }
+const litAt = new Map();     // id -> when it entered the window, for the flash
 function recompute() {
   const before = matchMap;
   matchList = state.events.map((e) => ({ e, d: Math.abs(e.year - state.year) })).filter((m) => m.d <= state.tol)
@@ -216,7 +217,8 @@ function recompute() {
   matchMap = new Map(matchList.map((m) => [m.e.id, m.d]));
   const now = performance.now();
   for (const [id, d] of before) if (!matchMap.has(id) && byId(id)) afterglow.set(id, { s: strength(d), t: now });
-  for (const id of matchMap.keys()) afterglow.delete(id);
+  for (const id of before.keys()) if (!matchMap.has(id)) litAt.delete(id);
+  for (const id of matchMap.keys()) { afterglow.delete(id); if (!before.has(id)) litAt.set(id, now); }
 }
 // 1 while lit, easing to 0 over FADE_MS after leaving the window
 function glowOf(id, now) {
@@ -232,7 +234,7 @@ function strength(d) { return 1 - d / (state.tol + 1); }
 const C = {};
 const TOKENS = {
   ink: "--ink", ink2: "--ink-2", muted: "--muted", line: "--line", line2: "--line-2",
-  sand: "--sand", sandWash: "--sand-wash", rose: "--rose", sage: "--sage", oceanHi: "--ocean-hi", oceanLo: "--ocean-lo", land: "--land", landEdge: "--land-edge", grat: "--grat",
+  sand: "--sand", sandWash: "--sand-wash", rose: "--rose", sage: "--sage", flashCore: "--flash-core", glow: "--glow", glowEdge: "--glow-edge", oceanHi: "--ocean-hi", oceanLo: "--ocean-lo", land: "--land", landEdge: "--land-edge", grat: "--grat",
   dot: "--dot", halo: "--halo", shade: "--shade", atmo: "--atmo", band: "--band", panel: "--panel",
 };
 function readColors() {
@@ -307,7 +309,7 @@ const globe = (() => {
       if (Math.hypot(inertia.vx, inertia.vy) < 0.002) inertia = null;
       keep = true;
     } else if (spinning && !reduceMotion.matches) {
-      rot[0] += 0.0045 * dt;
+      rot[0] += 0.008 * dt;
       keep = true;
     }
     draw(now);
@@ -371,21 +373,23 @@ const globe = (() => {
     const labels = [];
     for (const L of lit) {
       const { x, y, edge, s, k } = L;
-      const rad = 2.5 + (1.9 + 2.8 * s) * k;
-      if (k === 1 && !reduceMotion.matches) {
-        const ph = ((now || 0) / 1700 + (hashId(L.e.id) % 97) / 97) % 1;
-        ctx.globalAlpha = (1 - ph) * 0.75 * s * edge;
-        ctx.beginPath(); ctx.arc(x, y, rad + 2 + ph * 15, 0, TAU);
-        ctx.strokeStyle = C.sand; ctx.lineWidth = 2; ctx.stroke();
-      }
-      ctx.globalAlpha = edge * k;
-      ctx.beginPath(); ctx.arc(x, y, rad + 6, 0, TAU); ctx.fillStyle = C.sandWash; ctx.fill();
-      ctx.beginPath(); ctx.arc(x, y, rad + 2, 0, TAU); ctx.fillStyle = C.halo; ctx.fill();
-      ctx.globalAlpha = edge * k * (0.6 + 0.4 * s);
-      ctx.beginPath(); ctx.arc(x, y, rad, 0, TAU); ctx.fillStyle = C.sand; ctx.fill();
-      ctx.lineWidth = 1.5; ctx.strokeStyle = C.ink; ctx.stroke();
+      // a point of light, no outline: a white-hot centre through sand into a warm haze.
+      // It flashes larger as it enters the window, shimmers while lit, and shrinks as it fades.
+      const born = litAt.get(L.e.id);
+      const still = reduceMotion.matches;
+      const flash = k === 1 && born != null && !still ? Math.max(0, 1 - ((now || 0) - born) / 450) : 0;
+      const shimmer = k === 1 && !still ? 0.08 * Math.sin((now || 0) / 380 + (hashId(L.e.id) % 97)) : 0;
+      const r = (9 + 4.5 * s) * (0.4 + 0.6 * k) * (1 + 0.8 * flash * flash + shimmer);
+      const g = ctx.createRadialGradient(x, y, 0, x, y, r);
+      g.addColorStop(0, C.flashCore);
+      g.addColorStop(0.17, C.flashCore);
+      g.addColorStop(0.38, C.sand);
+      g.addColorStop(0.62, C.glow);
+      g.addColorStop(1, C.glowEdge);
+      ctx.globalAlpha = edge * k * (0.75 + 0.25 * s);
+      ctx.beginPath(); ctx.arc(x, y, r, 0, TAU); ctx.fillStyle = g; ctx.fill();
       ctx.globalAlpha = 1;
-      if (k === 1) { hits.push({ e: L.e, x, y, r: rad }); labels.push({ e: L.e, x, y, rad, s }); }
+      if (k === 1) { hits.push({ e: L.e, x, y, r: Math.max(4, r * 0.6) }); labels.push({ e: L.e, x, y, rad: r * 0.5, s }); }
     }
     // selected ring
     const sel = state.selectedId && byId(state.selectedId);
@@ -393,10 +397,9 @@ const globe = (() => {
       const ang = d3.geoDistance([sel.lng, sel.lat], c);
       if (ang < HALF_PI) {
         const [x, y] = proj([sel.lng, sel.lat]);
-        const rr = (matchMap.has(sel.id) ? 4.2 + 2.8 * strength(matchMap.get(sel.id)) : 3) + 5.5;
+        const rr = (matchMap.has(sel.id) ? 5 + 2.5 * strength(matchMap.get(sel.id)) : 3) + 5;
         ctx.beginPath(); ctx.arc(x, y, rr, 0, TAU); ctx.strokeStyle = C.halo; ctx.lineWidth = 6; ctx.stroke();
         ctx.beginPath(); ctx.arc(x, y, rr, 0, TAU); ctx.strokeStyle = C.rose; ctx.lineWidth = 3; ctx.stroke();
-        ctx.beginPath(); ctx.arc(x, y, rr + 2, 0, TAU); ctx.strokeStyle = C.ink; ctx.lineWidth = 1; ctx.stroke();
       }
     }
     // draft pin while adding or editing
@@ -595,7 +598,7 @@ const globe = (() => {
     nudgeSpin(v) {
       if (pointers.size > 0) return;
       anim = null; inertia = null; spinning = false;
-      spinTarget = clamp(v, -0.6, 0.6); spinAt = performance.now();
+      spinTarget = clamp(v, -1, 1); spinAt = performance.now();
       request();
     },
     labelsShown() { return labelAlpha > 0.5; },
@@ -782,7 +785,7 @@ const timeline = (() => {
       scrub.v = scrub.samples ? scrub.v * 0.5 + v * 0.5 : v * 0.5;
       scrub.samples = (scrub.samples || 0) + 1;
       scrub.lx = ev.clientX; scrub.lt = t;
-      if (!state.locked) globe.nudgeSpin(0.12 * scrub.v + 0.06 * scrub.v * Math.abs(scrub.v));
+      if (!state.locked) globe.nudgeSpin(0.3 * scrub.v + 0.1 * scrub.v * Math.abs(scrub.v));
       return;
     }
     if (ev.pointerType !== "mouse") return;
