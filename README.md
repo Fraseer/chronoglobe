@@ -8,10 +8,12 @@ Built for keeping track of the events from daily history guessing games like [An
 
 - **Globe**: drag to spin, scroll or pinch to zoom. Clicking a point centres the globe on it and opens its details.
 - **Timeline**: drag along it, type a year (e.g. `44 BC`), step ±1 or ±10 years, jump between events, or press play.
+  - Dragging the timeline spins the globe: the faster you drag, the faster it turns. While time is moving the points show without their names, and a point that leaves the window fades out over a couple of seconds.
+  - When you let go, the globe turns toward the matching events if none are in view.
+  - **Lock** keeps the globe still while you move through time, so you can watch one place.
   - **Window** sets how close an event's year must be to count as a match (exact year up to ±100 years).
   - **Weighted / Even** changes the scale: weighted gives recent centuries more room.
-  - **Follow** turns the globe toward matching events as you move through time.
-- **Sidebar**: *This year* lists the events in the current window; *Full timeline* lists everything in date order, grouped by century.
+- **Sidebar**: *This year* lists the events in the current window; *Full timeline* lists everything in date order, grouped by century. An event's details also list the other events from the same year.
 - **Add event**: title, year (BC/AD), optional day and month, place, optional category and description. Pick the place by typing a city or country and choosing from the suggestions (about 240 historic places and the 177 countries on the map are built in), or by clicking the globe.
 
 ## Where events are saved
@@ -47,7 +49,7 @@ npx playwright install chromium
 npm test
 ```
 
-They cover selecting and closing events, centring on a clicked point, cancelling a typed year, adding and editing events, saving across reloads, syncing between tabs, export and import (including keeping newer edits and rejecting bad files), full and blocked storage, and layout at phone widths from 320 to 430 px. Set `CHROMIUM_PATH` to use a Chromium build you already have.
+They cover selecting and closing events, centring on a clicked point, the timeline spinning the globe (and Lock stopping it), names hiding while dragging, points fading out, the same-year list, cancelling a typed year, adding and editing events, saving across reloads, syncing between tabs, export and import (including keeping newer edits and rejecting bad files), full and blocked storage, and layout at phone widths from 320 to 430 px. Set `CHROMIUM_PATH` to use a Chromium build you already have.
 
 ## Deploying
 

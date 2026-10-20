@@ -177,7 +177,7 @@ function describeLocation(lng, lat) {
 // ---------- state
 const state = {
   events: [], loaded: false, store: "connecting",
-  year: 1900, tol: 5, scale: "recent", follow: true,
+  year: 1900, tol: 5, scale: "recent", locked: false, scrubbing: false, playing: false,
   tab: "now", view: "list", selectedId: null,
   query: "", cat: "",
   editingId: null, draft: null, placeAuto: true,
@@ -187,8 +187,9 @@ let matchList = [], matchMap = new Map();
 const prefs = (() => { try { return JSON.parse(lsGet(PREFS_KEY) || "{}") || {}; } catch (_) { return {}; } })();
 if ([0, 1, 5, 10, 25, 50, 100].includes(prefs.tol)) state.tol = prefs.tol;
 if (prefs.scale === "even" || prefs.scale === "recent") state.scale = prefs.scale;
-if (typeof prefs.follow === "boolean") state.follow = prefs.follow;
-function savePrefs() { lsSet(PREFS_KEY, JSON.stringify({ tol: state.tol, scale: state.scale, follow: state.follow })); }
+if (typeof prefs.locked === "boolean") state.locked = prefs.locked;
+else if (prefs.follow === false) state.locked = true;
+function savePrefs() { lsSet(PREFS_KEY, JSON.stringify({ tol: state.tol, scale: state.scale, locked: state.locked })); }
 
 function normEvent(id, d) {
   if (!d || typeof d !== "object" || typeof id !== "string") return null;
@@ -205,18 +206,33 @@ function normEvent(id, d) {
   };
 }
 const byId = (id) => state.events.find((e) => e.id === id) || null;
+// events that drop out of the time window fade on the globe instead of vanishing
+const FADE_MS = 2600;
+const afterglow = new Map(); // id -> { s: strength when it left, t: when it left }
 function recompute() {
+  const before = matchMap;
   matchList = state.events.map((e) => ({ e, d: Math.abs(e.year - state.year) })).filter((m) => m.d <= state.tol)
     .sort((a, b) => a.d - b.d || dateOrder(a.e, b.e));
   matchMap = new Map(matchList.map((m) => [m.e.id, m.d]));
+  const now = performance.now();
+  for (const [id, d] of before) if (!matchMap.has(id) && byId(id)) afterglow.set(id, { s: strength(d), t: now });
+  for (const id of matchMap.keys()) afterglow.delete(id);
+}
+// 1 while lit, easing to 0 over FADE_MS after leaving the window
+function glowOf(id, now) {
+  const g = afterglow.get(id);
+  if (!g) return 0;
+  const k = Math.min(0.999, 1 - (now - g.t) / FADE_MS);
+  if (k <= 0) { afterglow.delete(id); return 0; }
+  return k * k * (3 - 2 * k);
 }
 function strength(d) { return 1 - d / (state.tol + 1); }
 
 // ---------- theme colors for canvas
 const C = {};
 const TOKENS = {
-  ink: "--ink", ink2: "--ink-2", muted: "--muted", line: "--line", line2: "--line-2", accent: "--accent", accentFill: "--accent-fill",
-  accentWash: "--accent-wash", oceanHi: "--ocean-hi", oceanLo: "--ocean-lo", land: "--land", landEdge: "--land-edge", grat: "--grat",
+  ink: "--ink", ink2: "--ink-2", muted: "--muted", line: "--line", line2: "--line-2",
+  sand: "--sand", sandWash: "--sand-wash", rose: "--rose", sage: "--sage", oceanHi: "--ocean-hi", oceanLo: "--ocean-lo", land: "--land", landEdge: "--land-edge", grat: "--grat",
   dot: "--dot", halo: "--halo", shade: "--shade", atmo: "--atmo", band: "--band", panel: "--panel",
 };
 function readColors() {
@@ -240,6 +256,10 @@ const globe = (() => {
   const LAND = topojson.feature(WORLD, WORLD.objects.land);
   const BORDERS = topojson.mesh(WORLD, WORLD.objects.countries, (a, b) => a !== b);
   let raf = 0, last = 0, anim = null, inertia = null, spinning = true;
+  // spin driven by dragging the timeline: spinTarget is refreshed by each drag move and lapses when moves stop
+  let spinVel = 0, spinTarget = 0, spinAt = -1e9;
+  // names are hidden while time is moving and fade back in when it stops
+  let labelAlpha = 1;
   let hits = [], farMatches = [], farKey = "";
   const pointers = new Map();
   let drag = null, pinch = null, hoverId = null;
@@ -259,6 +279,19 @@ const globe = (() => {
     const dt = last ? Math.min(64, now - last) : 16;
     last = now;
     let keep = false;
+    const fresh = now - spinAt < 120;
+    if (spinVel !== 0 || fresh) {
+      // pick up speed quickly while the timeline is being dragged, then coast down like a flywheel
+      spinVel += ((fresh ? spinTarget : 0) - spinVel) * Math.min(1, dt / (fresh ? 90 : 650));
+      if (!fresh && Math.abs(spinVel) < 0.0004) spinVel = 0;
+      rot[0] += spinVel * dt;
+      keep = true;
+    }
+    const labelTarget = state.scrubbing || state.playing ? 0 : 1;
+    if (labelAlpha !== labelTarget) {
+      labelAlpha = labelTarget ? Math.min(1, labelAlpha + dt / 260) : Math.max(0, labelAlpha - dt / 90);
+      keep = true;
+    }
     if (anim) {
       const t = clamp((now - anim.t0) / anim.dur, 0, 1), k = d3.easeCubicInOut(t);
       rot[0] = anim.from[0] + (anim.to[0] - anim.from[0]) * k;
@@ -278,8 +311,10 @@ const globe = (() => {
       keep = true;
     }
     draw(now);
+    // points on the far side are never drawn, so expire their fades here
+    for (const [id, g] of afterglow) if (now - g.t >= FADE_MS) afterglow.delete(id);
     const pulsing = !reduceMotion.matches && matchList.length > 0;
-    if (keep || pulsing) request(); else last = 0;
+    if (keep || pulsing || afterglow.size) request(); else last = 0;
   }
   const center = () => [-rot[0], -rot[1]];
   function angleTo(lng, lat) { return d3.geoDistance([lng, lat], center()); }
@@ -315,41 +350,42 @@ const globe = (() => {
     hits = [];
     const far = [];
     const c = center();
-    // non-matching events
+    const lit = [];
+    // plain dots first; events in the window, or still fading out of it, are drawn on top
     for (const e of state.events) {
-      if (matchMap.has(e.id)) continue;
       const ang = d3.geoDistance([e.lng, e.lat], c);
-      if (ang > HALF_PI - 0.015) continue;
+      const d = matchMap.get(e.id);
+      if (ang > HALF_PI - 0.015) { if (d != null) far.push(e); continue; }
       const [x, y] = proj([e.lng, e.lat]);
-      ctx.globalAlpha = 0.3 + 0.65 * Math.cos(ang);
+      const edge = 0.35 + 0.65 * Math.cos(ang);
+      if (d != null) { lit.push({ e, x, y, edge, s: strength(d), k: 1 }); continue; }
+      ctx.globalAlpha = edge;
       ctx.beginPath(); ctx.arc(x, y, 3.6, 0, TAU); ctx.fillStyle = C.halo; ctx.fill();
       ctx.beginPath(); ctx.arc(x, y, 2.5, 0, TAU); ctx.fillStyle = C.dot; ctx.fill();
       hits.push({ e, x, y, r: 3 });
+      const k = glowOf(e.id, now);
+      if (k > 0) lit.push({ e, x, y, edge, s: afterglow.get(e.id).s, k });
     }
     ctx.globalAlpha = 1;
-    // matching events, weakest first so the closest sit on top
+    lit.sort((a, b) => a.k - b.k || a.s - b.s);
     const labels = [];
-    for (let i = matchList.length - 1; i >= 0; i--) {
-      const { e, d } = matchList[i];
-      const ang = d3.geoDistance([e.lng, e.lat], c);
-      if (ang > HALF_PI - 0.015) { far.push(e); continue; }
-      const [x, y] = proj([e.lng, e.lat]);
-      const s = strength(d), rad = 4.2 + 2.8 * s;
-      const edge = 0.45 + 0.55 * Math.cos(ang);
-      if (!reduceMotion.matches) {
-        const ph = ((now || 0) / 1700 + (hashId(e.id) % 97) / 97) % 1;
-        ctx.globalAlpha = (1 - ph) * 0.6 * s * edge;
+    for (const L of lit) {
+      const { x, y, edge, s, k } = L;
+      const rad = 2.5 + (1.9 + 2.8 * s) * k;
+      if (k === 1 && !reduceMotion.matches) {
+        const ph = ((now || 0) / 1700 + (hashId(L.e.id) % 97) / 97) % 1;
+        ctx.globalAlpha = (1 - ph) * 0.75 * s * edge;
         ctx.beginPath(); ctx.arc(x, y, rad + 2 + ph * 15, 0, TAU);
-        ctx.strokeStyle = C.accentFill; ctx.lineWidth = 1.6; ctx.stroke();
+        ctx.strokeStyle = C.sand; ctx.lineWidth = 2; ctx.stroke();
       }
-      ctx.globalAlpha = edge;
-      ctx.beginPath(); ctx.arc(x, y, rad + 6, 0, TAU); ctx.fillStyle = C.accentWash; ctx.fill();
-      ctx.beginPath(); ctx.arc(x, y, rad + 1.8, 0, TAU); ctx.fillStyle = C.halo; ctx.fill();
-      ctx.globalAlpha = edge * (0.45 + 0.55 * s);
-      ctx.beginPath(); ctx.arc(x, y, rad, 0, TAU); ctx.fillStyle = C.accentFill; ctx.fill();
+      ctx.globalAlpha = edge * k;
+      ctx.beginPath(); ctx.arc(x, y, rad + 6, 0, TAU); ctx.fillStyle = C.sandWash; ctx.fill();
+      ctx.beginPath(); ctx.arc(x, y, rad + 2, 0, TAU); ctx.fillStyle = C.halo; ctx.fill();
+      ctx.globalAlpha = edge * k * (0.6 + 0.4 * s);
+      ctx.beginPath(); ctx.arc(x, y, rad, 0, TAU); ctx.fillStyle = C.sand; ctx.fill();
+      ctx.lineWidth = 1.5; ctx.strokeStyle = C.ink; ctx.stroke();
       ctx.globalAlpha = 1;
-      hits.push({ e, x, y, r: rad });
-      labels.push({ e, x, y, rad, s });
+      if (k === 1) { hits.push({ e: L.e, x, y, r: rad }); labels.push({ e: L.e, x, y, rad, s }); }
     }
     // selected ring
     const sel = state.selectedId && byId(state.selectedId);
@@ -358,8 +394,9 @@ const globe = (() => {
       if (ang < HALF_PI) {
         const [x, y] = proj([sel.lng, sel.lat]);
         const rr = (matchMap.has(sel.id) ? 4.2 + 2.8 * strength(matchMap.get(sel.id)) : 3) + 5.5;
-        ctx.beginPath(); ctx.arc(x, y, rr + 1.5, 0, TAU); ctx.strokeStyle = C.halo; ctx.lineWidth = 3.5; ctx.stroke();
-        ctx.beginPath(); ctx.arc(x, y, rr, 0, TAU); ctx.strokeStyle = C.ink; ctx.lineWidth = 1.6; ctx.stroke();
+        ctx.beginPath(); ctx.arc(x, y, rr, 0, TAU); ctx.strokeStyle = C.halo; ctx.lineWidth = 6; ctx.stroke();
+        ctx.beginPath(); ctx.arc(x, y, rr, 0, TAU); ctx.strokeStyle = C.rose; ctx.lineWidth = 3; ctx.stroke();
+        ctx.beginPath(); ctx.arc(x, y, rr + 2, 0, TAU); ctx.strokeStyle = C.ink; ctx.lineWidth = 1; ctx.stroke();
       }
     }
     // draft pin while adding or editing
@@ -370,12 +407,13 @@ const globe = (() => {
         ctx.lineCap = "round";
         ctx.strokeStyle = C.halo; ctx.lineWidth = 5;
         crosshair(x, y);
-        ctx.strokeStyle = C.accent; ctx.lineWidth = 2;
+        ctx.strokeStyle = C.ink; ctx.lineWidth = 2;
         crosshair(x, y);
-        ctx.beginPath(); ctx.arc(x, y, 2.5, 0, TAU); ctx.fillStyle = C.accent; ctx.fill();
+        ctx.beginPath(); ctx.arc(x, y, 4, 0, TAU); ctx.fillStyle = C.rose; ctx.fill();
+        ctx.lineWidth = 1.5; ctx.strokeStyle = C.ink; ctx.stroke();
       }
     }
-    drawLabels(labels);
+    if (labelAlpha > 0.01) drawLabels(labels);
     const key = far.map((e) => e.id).join(",");
     if (key !== farKey) { farKey = key; farMatches = far; renderFar(far); }
   }
@@ -391,6 +429,7 @@ const globe = (() => {
     ctx.font = `600 12px ${FONT_BODY}`;
     ctx.textBaseline = "middle";
     ctx.lineJoin = "round";
+    ctx.globalAlpha = labelAlpha;
     let n = 0;
     for (const L of labels) {
       if (n >= 10) break;
@@ -415,6 +454,7 @@ const globe = (() => {
         break;
       }
     }
+    ctx.globalAlpha = 1;
   }
 
   function hitAt(x, y) {
@@ -426,7 +466,8 @@ const globe = (() => {
     return best;
   }
   function localXY(ev) { const r = canvas.getBoundingClientRect(); return [ev.clientX - r.left, ev.clientY - r.top]; }
-  function stopMotion() { anim = null; inertia = null; spinning = false; }
+  function haltSpin() { spinVel = 0; spinTarget = 0; spinAt = -1e9; }
+  function stopMotion() { anim = null; inertia = null; spinning = false; haltSpin(); }
 
   canvas.addEventListener("pointerdown", (ev) => {
     if (ev.button !== 0 && ev.pointerType === "mouse") return;
@@ -523,6 +564,7 @@ const globe = (() => {
   function flyTo(lng, lat, opts = {}) {
     if (pointers.size > 0) return;
     spinning = false; inertia = null;
+    haltSpin();
     const from = [rot[0], rot[1]];
     const dx = ((((-lng - from[0]) % 360) + 540) % 360) - 180;
     const to = [from[0] + dx, clamp(-lat, -80, 80)];
@@ -549,6 +591,16 @@ const globe = (() => {
   return {
     request, flyTo, angleTo, resize,
     stopSpin() { spinning = false; },
+    // deg per ms; ignored while someone is dragging the globe itself
+    nudgeSpin(v) {
+      if (pointers.size > 0) return;
+      anim = null; inertia = null; spinning = false;
+      spinTarget = clamp(v, -0.6, 0.6); spinAt = performance.now();
+      request();
+    },
+    labelsShown() { return labelAlpha > 0.5; },
+    spinSpeed() { return spinVel; },
+    haltSpin,
     get farMatches() { return farMatches; },
     getView() { return { rot: [rot[0], rot[1]], zoom }; },
     setView(v) { if (v && Array.isArray(v.rot)) { rot[0] = +v.rot[0] || 0; rot[1] = clamp(+v.rot[1] || 0, -88, 88); } if (v && v.zoom) zoom = clamp(+v.zoom, 0.7, 8); spinning = false; request(); },
@@ -649,7 +701,7 @@ const timeline = (() => {
     const xn = X(state.year);
     if (state.tol > 0) {
       const xa = X(state.year - state.tol), xb = X(state.year + state.tol);
-      ctx.fillStyle = C.accentWash; ctx.fillRect(xa, 16, Math.max(2, xb - xa), BASE - 16);
+      ctx.fillStyle = C.sandWash; ctx.fillRect(xa, 16, Math.max(2, xb - xa), BASE - 16);
     }
     // baseline
     ctx.fillStyle = C.line2; ctx.fillRect(PAD - 6, BASE, W - 2 * PAD + 12, 1);
@@ -657,14 +709,14 @@ const timeline = (() => {
     for (const e of state.events) {
       if (matchMap.has(e.id) || e.id === state.selectedId) continue;
       const x = X(e.year);
-      ctx.globalAlpha = 0.75; ctx.fillStyle = C.dot;
-      ctx.fillRect(x - 0.75, BASE - 15, 1.5, 15);
+      ctx.globalAlpha = 0.55; ctx.fillStyle = C.dot;
+      ctx.fillRect(x - 0.75, BASE - 14, 1.5, 14);
     }
     ctx.globalAlpha = 1;
     for (const { e } of matchList) {
       if (e.id === state.selectedId) continue;
       const x = X(e.year);
-      ctx.fillStyle = C.accentFill;
+      ctx.fillStyle = C.ink;
       ctx.fillRect(x - 1.25, BASE - 28, 2.5, 28);
     }
     const sel = state.selectedId && byId(state.selectedId);
@@ -672,7 +724,8 @@ const timeline = (() => {
       const x = X(sel.year);
       ctx.fillStyle = C.ink;
       ctx.fillRect(x - 1.25, BASE - 32, 2.5, 32);
-      ctx.beginPath(); ctx.arc(x, BASE - 34, 3.2, 0, TAU); ctx.fill();
+      ctx.beginPath(); ctx.arc(x, BASE - 35, 4.5, 0, TAU); ctx.fillStyle = C.rose; ctx.fill();
+      ctx.lineWidth = 1.5; ctx.strokeStyle = C.ink; ctx.stroke();
     }
     // axis
     ctx.font = `11px ${FONT_MONO}`;
@@ -687,10 +740,10 @@ const timeline = (() => {
       ctx.textAlign = align; ctx.fillText(label, tx, BASE + 19);
     }
     // needle
-    ctx.fillStyle = C.accent; ctx.fillRect(xn - 1, 16, 2, BASE - 10);
-    ctx.beginPath(); ctx.arc(xn, BASE, 7.5, 0, TAU); ctx.fillStyle = C.panel; ctx.fill();
-    ctx.beginPath(); ctx.arc(xn, BASE, 6, 0, TAU); ctx.fillStyle = C.accentFill; ctx.fill();
-    ctx.lineWidth = 1.5; ctx.strokeStyle = C.accent; ctx.stroke();
+    ctx.fillStyle = C.ink; ctx.fillRect(xn - 1, 16, 2, BASE - 10);
+    ctx.beginPath(); ctx.arc(xn, BASE, 8.5, 0, TAU); ctx.fillStyle = C.panel; ctx.fill();
+    ctx.beginPath(); ctx.arc(xn, BASE, 7, 0, TAU); ctx.fillStyle = C.sand; ctx.fill();
+    ctx.lineWidth = 1.5; ctx.strokeStyle = C.ink; ctx.stroke();
   }
 
   function markNear(px) {
@@ -704,6 +757,8 @@ const timeline = (() => {
   const localX = (ev) => ev.clientX - track.getBoundingClientRect().left;
   function beginScrub(s, ev) {
     s.pending = false;
+    s.lx = ev.clientX; s.lt = performance.now(); s.v = 0;
+    state.scrubbing = true;
     hideTip();
     stopPlay();
     onScrubStart();
@@ -722,6 +777,12 @@ const timeline = (() => {
       if (scrub.pending) { if (dx > 6 && dx > dy) { scrub.moved = true; beginScrub(scrub, ev); } return; }
       if (!scrub.moved && dx > 3) scrub.moved = true;
       setYear(yearAt(localX(ev)), { settle: false });
+      // the faster the drag, the faster the globe turns (forward in time turns it the way the Earth spins)
+      const t = performance.now(), v = (ev.clientX - scrub.lx) / clamp(t - scrub.lt, 16, 100);
+      scrub.v = scrub.samples ? scrub.v * 0.5 + v * 0.5 : v * 0.5;
+      scrub.samples = (scrub.samples || 0) + 1;
+      scrub.lx = ev.clientX; scrub.lt = t;
+      if (!state.locked) globe.nudgeSpin(0.12 * scrub.v + 0.06 * scrub.v * Math.abs(scrub.v));
       return;
     }
     if (ev.pointerType !== "mouse") return;
@@ -732,6 +793,8 @@ const timeline = (() => {
   function endScrub(ev) {
     if (!scrub || ev.pointerId !== scrub.id) return;
     const s = scrub; scrub = null;
+    state.scrubbing = false;
+    globe.request();
     if (ev.type === "pointercancel") { if (!s.pending) settleYear(); return; }
     if (!s.moved) {
       const m = markNear(localX(ev));
@@ -784,7 +847,7 @@ function setYear(y, opts = {}) {
   if (opts.settle !== false) settleYear();
 }
 function settleYear() {
-  if (!state.follow || !matchList.length) return;
+  if (state.locked || !matchList.length) return;
   if (matchList.some((m) => globe.angleTo(m.e.lng, m.e.lat) < 1.1)) return;
   const top = matchList[0].e;
   globe.flyTo(top.lng, top.lat);
@@ -833,9 +896,19 @@ document.querySelectorAll("[data-scale]").forEach((b) => b.addEventListener("cli
   if (play) play.f = timeline.frac(state.year);
 }));
 document.querySelectorAll("[data-scale]").forEach((x) => x.setAttribute("aria-pressed", String(x.dataset.scale === state.scale)));
-const followBtn = $("#followBtn");
-followBtn.setAttribute("aria-pressed", String(state.follow));
-followBtn.addEventListener("click", () => { state.follow = !state.follow; followBtn.setAttribute("aria-pressed", String(state.follow)); savePrefs(); if (state.follow) settleYear(); });
+// Lock keeps the globe still while time moves: no spin from dragging the timeline and no turning toward events
+const lockBtn = $("#lockBtn"), lockShackle = $("#lockShackle");
+function renderLock() {
+  lockBtn.setAttribute("aria-pressed", String(state.locked));
+  lockShackle.setAttribute("d", state.locked ? "M5.5 7V5a2.5 2.5 0 0 1 5 0v2" : "M5.5 7V5a2.5 2.5 0 0 1 5 0");
+  lockBtn.title = state.locked ? "Globe locked: it stays still while you move through time" : "Lock the globe so it stays still while you move through time";
+}
+renderLock();
+lockBtn.addEventListener("click", () => {
+  state.locked = !state.locked;
+  renderLock(); savePrefs();
+  if (state.locked) globe.haltSpin(); else settleYear();
+});
 
 // play through time at a steady pace along the track
 let play = null;
@@ -845,6 +918,7 @@ function startPlay() {
   let f = timeline.frac(state.year);
   if (f >= 0.999) { f = 0; setYear(timeline.domain[0], { settle: false }); }
   play = { f, last: 0, raf: 0 };
+  state.playing = true;
   playIcon.setAttribute("d", "M4 3h3v10H4zM9 3h3v10H9z");
   playBtn.setAttribute("aria-label", "Pause");
   const step = (now) => {
@@ -868,6 +942,8 @@ function stopPlay() {
   if (!play) return;
   cancelAnimationFrame(play.raf);
   play = null;
+  state.playing = false;
+  globe.request();
   playIcon.setAttribute("d", "M4.5 2.8 13 8l-8.5 5.2z");
   playBtn.setAttribute("aria-label", "Play through time");
 }
@@ -1292,6 +1368,12 @@ function renderDetail() {
   if (e.category) kids.push(h("span", { class: "d-cat", text: CAT_LABEL[e.category] }));
   kids.push(meta);
   kids.push(e.description ? h("p", { class: "d-notes", text: e.description }) : h("p", { class: "d-notes", text: writable ? "No description yet. Choose Edit to add one." : "No description." }));
+  const sameYear = state.events.filter((x) => x.year === e.year && x.id !== e.id).sort((a, b) => dateOrder(a, b) || a.title.localeCompare(b.title));
+  if (sameYear.length) {
+    kids.push(h("section", { class: "same-year", "aria-label": `Other events in ${fmtYear(e.year)}` },
+      h("h3", { text: `Also in ${fmtYear(e.year)}` }),
+      sameYear.map((x) => h("button", { type: "button", text: x.title, onclick: () => selectEvent(x.id, { fly: true }) }))));
+  }
   if (d == null) kids.push(h("div", { class: "d-actions" }, h("button", { class: "btn", type: "button", text: `Move timeline to ${fmtYear(e.year)}`, onclick: () => setYear(e.year) })));
   if (writable) {
     if (!confirmDelete) {
@@ -1451,12 +1533,11 @@ function toast(msg) {
   toastTimer = setTimeout(() => { t.hidden = true; }, 2600);
 }
 
-// ---------- theme changes repaint the canvases
-function repaint() { readColors(); globe.request(); timeline.draw(); }
-window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", repaint);
 narrow.addEventListener("change", () => renderView());
-new MutationObserver(repaint).observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme", "class"] });
 if (document.fonts && document.fonts.ready) document.fonts.ready.then(() => { timeline.layout(); globe.request(); });
+
+// read-only hooks for the end-to-end tests
+window.__chronoglobe = Object.freeze({ view: () => globe.getView(), labelsShown: () => globe.labelsShown(), spin: () => globe.spinSpeed(), fading: () => afterglow.size });
 
 // ---------- boot
 renderChrome(); renderStats(); renderView(); update();

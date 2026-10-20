@@ -129,6 +129,64 @@ function check(name, ok, info) {
   await p.setInputFiles("#importFile", bad); await p.waitForTimeout(300);
   check("a broken file is rejected with a message", /isn't a Chronoglobe backup/.test(await p.evaluate(() => document.querySelector("#toast").textContent)));
 
+  // ---------------------------------------------------------------- dragging the timeline
+  const g = await newPage({ viewport: { width: 1400, height: 860 } });
+  const view = () => g.evaluate(() => window.__chronoglobe.view().rot[0]);
+  const tr = await g.locator("#tlTrack").boundingBox();
+  // record the fastest spin seen, frame by frame, inside the page
+  await g.evaluate(() => { window.__peak = 0; (function loop() { window.__peak = Math.max(window.__peak, window.__chronoglobe.spin()); requestAnimationFrame(loop); })(); });
+  // drag 150px slowly (a step every ~110ms) or in one quick flick
+  async function drag(x0, fast) {
+    await g.evaluate(() => { window.__peak = 0; });
+    await g.mouse.move(tr.x + x0, tr.y + 40); await g.mouse.down();
+    const before = await view();
+    if (fast) await g.mouse.move(tr.x + x0 + 150, tr.y + 40, { steps: 15 });
+    else for (let i = 1; i <= 15; i++) { await g.mouse.move(tr.x + x0 + i * 10, tr.y + 40); await g.waitForTimeout(110); }
+    await g.waitForTimeout(150);
+    const during = await g.evaluate(() => window.__chronoglobe.labelsShown());
+    await g.mouse.up();
+    await g.waitForTimeout(600);
+    const turned = (await view()) - before, peak = await g.evaluate(() => window.__peak);
+    await g.waitForFunction(() => window.__chronoglobe.spin() === 0, null, { timeout: 8000 });
+    await g.waitForTimeout(300);
+    return { turned, peak, labelsWhileDragging: during };
+  }
+  const slow = await drag(tr.width * 0.4, false);
+  const fast = await drag(tr.width * 0.4, true);
+  check("dragging the timeline forward spins the globe", slow.turned > 1 && fast.turned > 1, { slow, fast });
+  check("a faster drag spins the globe faster", fast.peak > slow.peak * 2, { slowDegPerSec: Math.round(slow.peak * 1000), fastDegPerSec: Math.round(fast.peak * 1000) });
+  check("names are hidden while dragging and come back after", !slow.labelsWhileDragging && (await g.evaluate(() => window.__chronoglobe.labelsShown())), slow);
+  await g.click("#lockBtn");
+  const locked = await drag(tr.width * 0.4, true);
+  check("Lock keeps the globe still while dragging the timeline", Math.abs(locked.turned) < 0.01 && (await g.getAttribute("#lockBtn", "aria-pressed")) === "true", locked);
+  await g.click("#lockBtn");
+  // fading: move from 1453 (two events lit) to 1969, then wait
+  await g.fill("#yearInput", "1453"); await g.press("#yearInput", "Enter"); await g.waitForTimeout(300);
+  await g.fill("#yearInput", "1969"); await g.press("#yearInput", "Enter");
+  const fadingNow = await g.evaluate(() => window.__chronoglobe.fading());
+  await g.waitForTimeout(3000);
+  const fadingLater = await g.evaluate(() => window.__chronoglobe.fading());
+  check("points that leave the window fade out over a few seconds", fadingNow === 2 && fadingLater === 0, { fadingNow, fadingLater });
+  await g.context().close();
+
+  // ---------------------------------------------------------------- other events in the same year
+  const sy = await newPage({ viewport: { width: 1400, height: 860 } }, () => {
+    if (localStorage.getItem("chronoglobe:events:v1") == null) {
+      localStorage.setItem("chronoglobe:events:v1", JSON.stringify([
+        { id: "a", title: "Gutenberg Bible printed", year: 1455, lat: 49.99, lng: 8.25, createdAt: 1 },
+        { id: "b", title: "Wars of the Roses begin", year: 1455, month: 5, day: 22, lat: 51.75, lng: -0.34, createdAt: 2 },
+        { id: "c", title: "Fall of Constantinople", year: 1453, lat: 41.0, lng: 28.98, createdAt: 3 },
+      ]));
+    }
+  });
+  await sy.click("#tabAll"); await sy.click('#listItems .ev >> text=Gutenberg Bible printed'); await sy.waitForTimeout(900);
+  st = await sy.evaluate(() => ({ head: document.querySelector(".same-year h3")?.textContent, items: [...document.querySelectorAll(".same-year button")].map((b) => b.textContent) }));
+  check("details list the other events from the same year only", st.head === "Also in 1455" && st.items.join() === "Wars of the Roses begin", st);
+  await sy.click(".same-year button"); await sy.waitForTimeout(900);
+  st = await sy.evaluate(() => ({ title: document.querySelector(".d-title")?.textContent, items: [...document.querySelectorAll(".same-year button")].map((b) => b.textContent) }));
+  check("clicking one opens that event", st.title === "Wars of the Roses begin" && st.items.join() === "Gutenberg Bible printed", st);
+  await sy.context().close();
+
   // ---------------------------------------------------------------- blocked storage
   const pb = await newPage({ viewport: { width: 1200, height: 800 } }, () => { Storage.prototype.setItem = function () { throw new DOMException("blocked", "SecurityError"); }; });
   st = await pb.evaluate(() => ({ sync: document.querySelector("#sync").textContent, add: document.querySelector("#addBtn").hidden, empty: document.querySelector("#listItems").innerText.slice(0, 40) }));
