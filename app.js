@@ -140,6 +140,7 @@ function periodLabel(y) {
   return `${ordinal(Math.ceil(b / 100))} century BC`;
 }
 function periodKey(y) { if (y >= 1) return "c" + Math.ceil(y / 100); const b = 1 - y; return b > 1000 ? "m" + Math.ceil(b / 1000) : "b" + Math.ceil(b / 100); }
+function yrsWord(n, word) { return `${n} ${word}${n === 1 ? "" : "s"}`; }
 function yrs(n) { return `${n} year${n === 1 ? "" : "s"}`; }
 function yearsAgo(y) { const n = NOW_YEAR - y; return n > 0 ? `(${n.toLocaleString("en")} years ago)` : n === 0 ? "(this year)" : ""; }
 function fmtCoord(lat, lng) {
@@ -193,13 +194,14 @@ function normEvent(id, d) {
   if (!d || typeof d !== "object" || typeof id !== "string") return null;
   const year = Number(d.year), lat = Number(d.lat), lng = Number(d.lng);
   if (!Number.isFinite(year) || !Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+  if (year < -99998 || year > NOW_YEAR) return null;
   const month = Number.isInteger(d.month) && d.month >= 1 && d.month <= 12 ? d.month : null;
   const day = month && Number.isInteger(d.day) && d.day >= 1 && d.day <= MONTH_DAYS[month - 1] ? d.day : null;
   return {
     id, title: String(d.title || "Untitled event").slice(0, 200), year: Math.round(year), month, day,
     place: String(d.place || "").slice(0, 120), lat: clamp(lat, -90, 90), lng: clamp(lng, -180, 180),
     category: CAT_LABEL[d.category] ? d.category : "", description: String(d.description || "").slice(0, 4000),
-    example: d.example === true, createdAt: Number(d.createdAt) || 0,
+    example: d.example === true, createdAt: Number(d.createdAt) || 0, updatedAt: Number(d.updatedAt) || 0,
   };
 }
 const byId = (id) => state.events.find((e) => e.id === id) || null;
@@ -610,6 +612,7 @@ const timeline = (() => {
     canvas.width = Math.round(W * dpr); canvas.height = Math.round(H * dpr);
     const [lo, hi] = domain, cand = [1];
     for (const s of [1000, 500, 250, 100, 50, 25, 10]) {
+      if ((hi - lo) / s > 2000) continue;
       for (let y = s; y <= hi; y += s) cand.push(y);
       for (let b = s; 1 - b >= lo; b += s) cand.push(1 - b);
     }
@@ -883,17 +886,28 @@ const EXAMPLES = [
 ];
 function readLocal() { try { const a = JSON.parse(lsGet(LOCAL_KEY) || "[]"); return Array.isArray(a) ? a : []; } catch (_) { return []; } }
 function writeLocal(rows) { if (!lsSet(LOCAL_KEY, JSON.stringify(rows))) throw { code: "local_blocked" }; }
-function storageWorks() {
+// "ok", "full" (the site's quota is used up; reads still work) or "blocked" (storage turned off)
+function probeStorage() {
   const k = "chronoglobe:probe";
-  if (!lsSet(k, "1")) return false;
-  try { window.localStorage.removeItem(k); } catch (_) {}
-  return true;
+  try { window.localStorage.setItem(k, "1"); window.localStorage.removeItem(k); return "ok"; }
+  catch (err) { return err && (err.name === "QuotaExceededError" || err.name === "NS_ERROR_DOM_QUOTA_REACHED" || err.code === 22) ? "full" : "blocked"; }
+}
+// ask the browser not to clear this site's data when space runs low; Firefox asks the user, so only after a save
+let persistAsked = false;
+function keepStorage() {
+  if (persistAsked) return;
+  persistAsked = true;
+  try {
+    if (navigator.storage && navigator.storage.persisted && navigator.storage.persist) {
+      navigator.storage.persisted().then((p) => (p ? null : navigator.storage.persist())).catch(() => {});
+    }
+  } catch (_) {}
 }
 function loadLocal() { state.events = readLocal().map((r) => normEvent(r && r.id, r)).filter(Boolean); }
 function initStore() {
-  if (!storageWorks()) { state.store = "blocked"; renderChrome(); eventsChanged(); return; }
-  state.store = "local";
-  if (lsGet(LOCAL_KEY) == null) lsSet(LOCAL_KEY, JSON.stringify(EXAMPLES));
+  const probe = probeStorage();
+  state.store = probe === "ok" ? "local" : probe;
+  if (probe === "ok" && lsGet(LOCAL_KEY) == null) lsSet(LOCAL_KEY, JSON.stringify(EXAMPLES));
   loadLocal();
   renderChrome();
   eventsChanged();
@@ -903,8 +917,6 @@ function initStore() {
     loadLocal();
     eventsChanged();
   });
-  // ask the browser not to clear this site's data when space runs low (it decides silently)
-  try { if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {}); } catch (_) {}
 }
 const newId = () => "ev-" + Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
 async function putEvent(id, body) {
@@ -932,14 +944,20 @@ function upsert(id, body) {
   eventsChanged();
 }
 function toRow(e) {
-  return { id: e.id, title: e.title, year: e.year, month: e.month, day: e.day, place: e.place, lat: e.lat, lng: e.lng, category: e.category, description: e.description, example: e.example, createdAt: e.createdAt || Date.now() };
+  return { id: e.id, title: e.title, year: e.year, month: e.month, day: e.day, place: e.place, lat: e.lat, lng: e.lng, category: e.category, description: e.description, example: e.example, createdAt: e.createdAt || Date.now(), updatedAt: e.updatedAt || 0 };
 }
 function describeError(err) {
-  if (err && err.code === "local_blocked") return "This browser didn't save that. Its storage may be full or turned off for this site.";
+  if (err && err.code === "local_blocked") {
+    return probeStorage() === "full"
+      ? "That wasn't saved because this site's storage is full. Export a backup, then free up space."
+      : "That wasn't saved because this browser is blocking storage for this site.";
+  }
   return "Something went wrong saving that. Try again.";
 }
 function handleWriteError(err) {
-  if (err && err.code === "local_blocked" && !storageWorks()) { state.store = "blocked"; renderChrome(); renderView(); }
+  if (!err || err.code !== "local_blocked") return;
+  const probe = probeStorage();
+  if (probe !== "ok") { state.store = probe; renderChrome(); renderView(); }
 }
 
 // ---------- backup files: the only way to copy events to another browser or device
@@ -951,8 +969,8 @@ function exportEvents() {
   document.body.append(a);
   a.click();
   a.remove();
-  setTimeout(() => URL.revokeObjectURL(url), 2000);
-  toast(`Exported ${n} ${n === 1 ? "event" : "events"}`);
+  setTimeout(() => URL.revokeObjectURL(url), 60000);
+  toast(`Backup ready: ${yrsWord(n, "event")}. Check your downloads.`);
 }
 function importEvents(file) {
   const reader = new FileReader();
@@ -966,13 +984,30 @@ function importEvents(file) {
     if (!rows) { toast("That file isn't a Chronoglobe backup."); return; }
     const incoming = rows.map((r) => normEvent(r && typeof r.id === "string" && r.id ? r.id.slice(0, 80) : newId(), r)).filter(Boolean);
     if (!incoming.length) { toast("No events found in that file."); return; }
+    // merge by id; when both sides have an event, keep whichever was edited last
     const merged = new Map(readLocal().filter((r) => r && r.id).map((r) => [r.id, r]));
-    let added = 0, updated = 0;
-    for (const e of incoming) { if (merged.has(e.id)) updated++; else added++; merged.set(e.id, toRow(e)); }
+    const stamp = (e) => e.updatedAt || e.createdAt || 0;
+    let added = 0, updated = 0, kept = 0;
+    for (const e of incoming) {
+      const cur = merged.has(e.id) ? normEvent(e.id, merged.get(e.id)) : null;
+      if (!cur) { added++; merged.set(e.id, toRow(e)); continue; }
+      if (JSON.stringify(toRow(cur)) === JSON.stringify(toRow(e))) continue;
+      if (stamp(cur) >= stamp(e)) { kept++; continue; }
+      updated++; merged.set(e.id, toRow(e));
+    }
+    if (!added && !updated) {
+      toast(kept ? `Nothing imported: the ${yrsWord(kept, "event")} here ${kept === 1 ? "is" : "are"} newer than the file's.` : "Everything in that file is already here.");
+      return;
+    }
     try { writeLocal([...merged.values()]); } catch (err) { handleWriteError(err); toast(describeError(err)); return; }
     loadLocal();
     eventsChanged();
-    toast(`Imported ${added} new ${added === 1 ? "event" : "events"}${updated ? `, updated ${updated}` : ""}`);
+    keepStorage();
+    const parts = [];
+    if (added) parts.push(`${yrsWord(added, "new event")}`);
+    if (updated) parts.push(`updated ${updated}`);
+    if (kept) parts.push(`kept ${kept} newer ${kept === 1 ? "version" : "versions"} already here`);
+    toast(`Imported ${parts.join(", ")}`);
   };
   reader.readAsText(file);
 }
@@ -1019,6 +1054,7 @@ function renderChrome() {
     connecting: ["Loading…", ""],
     local: ["Saved in this browser", "Events are stored in this browser on this device. Use Export backup to keep a copy or move them to another device."],
     blocked: ["Not saving", "This browser is blocking storage for this site, so new events can't be saved."],
+    full: ["Storage full", "This site's storage is full, so changes can't be saved. Export a backup, then free up space."],
   };
   const [t, title] = labels[state.store] || labels.connecting;
   sync.textContent = t; sync.title = title; sync.dataset.state = state.store;
@@ -1169,6 +1205,11 @@ function emptyState() {
       h("h3", { text: "This browser isn't saving" }),
       h("p", { text: "Storage is turned off for this site, so events can't be kept. Allow site data in your browser settings, then reload." }));
   }
+  if (state.store === "full") {
+    return h("div", { class: "empty" },
+      h("h3", { text: "Storage is full" }),
+      h("p", { text: "This site's storage is used up, so events can't be saved. Other pages on the same site may be using the space." }));
+  }
   return h("div", { class: "empty" },
     h("h3", { text: "Your logbook is empty" }),
     h("p", { text: "Each event you add becomes a point on the globe and a mark on the timeline. Drag the timeline to see which events line up with a year." }),
@@ -1178,7 +1219,9 @@ function emptyState() {
 }
 function dataTools() {
   return h("div", { class: "data-tools" },
-    h("p", { text: "Events are saved in this browser on this device. Export a backup to keep a copy or to move them to another device." }),
+    h("p", { text: state.store === "local"
+      ? "Events are saved in this browser on this device, and browsers can clear them (Safari does after 7 days without a visit). Export a backup now and then to keep a copy or move them to another device."
+      : "Changes can't be saved right now. Export a backup to keep a copy of your events." }),
     h("div", { class: "row" },
       h("button", { class: "btn", type: "button", text: "Export backup", onclick: exportEvents }),
       canWrite() ? h("button", { class: "btn", type: "button", text: "Import backup", onclick: () => $("#importFile").click() }) : null));
@@ -1371,7 +1414,7 @@ $("#formView").addEventListener("submit", async (ev) => {
     title, year, month, day, place: F.place.value.trim().slice(0, 120),
     lat: Math.round(state.draft.lat * 1000) / 1000, lng: Math.round(state.draft.lng * 1000) / 1000,
     category: F.cat.value || "", description: F.desc.value.trim().slice(0, 4000),
-    example: false, createdAt: prev ? prev.createdAt : Date.now(),
+    example: false, createdAt: prev ? prev.createdAt : Date.now(), updatedAt: Date.now(),
   };
   F.save.disabled = true; F.save.textContent = "Saving…";
   try {
@@ -1383,6 +1426,7 @@ $("#formView").addEventListener("submit", async (ev) => {
     state.view = "detail";
     renderView();
     toast(prev ? "Changes saved" : "Event added");
+    keepStorage();
   } catch (err) {
     handleWriteError(err);
     formError(describeError(err));

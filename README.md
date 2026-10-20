@@ -12,15 +12,18 @@ Built for keeping track of the events from daily history guessing games like [An
   - **Weighted / Even** changes the scale: weighted gives recent centuries more room.
   - **Follow** turns the globe toward matching events as you move through time.
 - **Sidebar**: *This year* lists the events in the current window; *Full timeline* lists everything in date order, grouped by century.
-- **Add event**: title, year (BC/AD), optional day and month, place, optional category and description. Pick the place by typing a city or country (about 240 historic places and every country are built in) or by clicking the globe.
+- **Add event**: title, year (BC/AD), optional day and month, place, optional category and description. Pick the place by typing a city or country and choosing from the suggestions (about 240 historic places and the 177 countries on the map are built in), or by clicking the globe.
 
 ## Where events are saved
 
-Events are stored in your browser's `localStorage`, on this device only. Nothing is sent anywhere.
+Events are stored in your browser's `localStorage`, on this device only. They never leave your browser (the page does load its fonts from Google Fonts).
 
 - Another browser, another device or a private window starts with its own, separate list.
-- Clearing site data for the page deletes the events.
-- Use **Export backup** (at the bottom of *Full timeline*) to save a JSON file, and **Import backup** to load it elsewhere. Importing merges by event, so importing the same file twice doesn't create duplicates.
+- Clearing site data for the page deletes the events. Browsers can also clear it on their own: Safari (on Mac, iPhone and iPad) deletes it after 7 days without a visit, and any browser may when the disk is nearly full. Adding the site to your iPhone or iPad Home Screen avoids Safari's 7-day rule.
+- On GitHub Pages, every project site under the same account (`<user>.github.io/...`) shares this storage. Clearing site data for any of them clears Chronoglobe's events too, and one of them filling the storage stops Chronoglobe saving. A custom domain keeps it separate.
+- **Export backup** (at the bottom of *Full timeline*) saves a JSON file, and **Import backup** loads one. Importing merges by event: new events are added, and when an event exists on both sides the most recently edited copy is kept, so importing the same file twice changes nothing.
+
+Export a backup now and then; it's the only copy that survives the browser clearing its storage.
 
 A first visit starts with four example events, marked *Example*. **Remove examples** deletes them for good.
 
@@ -44,7 +47,7 @@ npx playwright install chromium
 npm test
 ```
 
-They cover selecting and closing events, centring on a clicked point, the year controls, adding an event, saving across reloads, syncing between tabs, export and import, blocked storage, and layout at phone widths from 320 to 430 px. Set `CHROMIUM_PATH` to use a Chromium build you already have.
+They cover selecting and closing events, centring on a clicked point, cancelling a typed year, adding and editing events, saving across reloads, syncing between tabs, export and import (including keeping newer edits and rejecting bad files), full and blocked storage, and layout at phone widths from 320 to 430 px. Set `CHROMIUM_PATH` to use a Chromium build you already have.
 
 ## Deploying
 

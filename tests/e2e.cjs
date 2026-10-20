@@ -106,7 +106,24 @@ function check(name, ok, info) {
   check("Import backup restores events", st.n === "4" && /Imported 4 new events/.test(st.toast), st);
   await p.setInputFiles("#importFile", file); await p.waitForTimeout(400);
   st = await p.evaluate(() => ({ n: document.querySelector("#countAll").textContent, toast: document.querySelector("#toast").textContent }));
-  check("importing the same backup again doesn't duplicate", st.n === "4" && /updated 4/.test(st.toast), st);
+  check("importing the same backup again changes nothing", st.n === "4" && /already here/.test(st.toast), st);
+
+  // edit an event, then import the older backup: the edit must survive
+  await p.click("#tabAll"); await p.click('#listItems .ev[data-year="-2559"]'); await p.waitForTimeout(900);
+  await p.click("#detailView .btn >> text=Edit");
+  await p.fill("#fTitle", "Great Pyramid of Giza (my notes)");
+  await p.click("#fSave"); await p.waitForTimeout(500);
+  await p.setInputFiles("#importFile", file); await p.waitForTimeout(400);
+  st = await p.evaluate(() => ({ titles: JSON.parse(localStorage.getItem("chronoglobe:events:v1")).map((r) => r.title), toast: document.querySelector("#toast").textContent }));
+  check("importing an older backup keeps a newer local edit", st.titles.includes("Great Pyramid of Giza (my notes)") && !st.titles.includes("Great Pyramid of Giza completed") && /newer/.test(st.toast), st);
+
+  // a file with an impossible year is ignored rather than freezing the timeline
+  const huge = path.join(os.tmpdir(), "chronoglobe-huge.json");
+  fs.writeFileSync(huge, JSON.stringify({ app: "chronoglobe", events: [{ id: "bad-year", title: "Typo", year: 1000000000, lat: 0, lng: 0 }] }));
+  const t0 = Date.now();
+  await p.setInputFiles("#importFile", huge); await p.waitForTimeout(400);
+  st = await p.evaluate(() => ({ n: document.querySelector("#countAll").textContent, toast: document.querySelector("#toast").textContent }));
+  check("an impossible year in a backup is ignored", st.n === "4" && /No events found/.test(st.toast) && Date.now() - t0 < 3000, st);
   const bad = path.join(os.tmpdir(), "chronoglobe-bad.json");
   fs.writeFileSync(bad, "{not json");
   await p.setInputFiles("#importFile", bad); await p.waitForTimeout(300);
@@ -116,6 +133,15 @@ function check(name, ok, info) {
   const pb = await newPage({ viewport: { width: 1200, height: 800 } }, () => { Storage.prototype.setItem = function () { throw new DOMException("blocked", "SecurityError"); }; });
   st = await pb.evaluate(() => ({ sync: document.querySelector("#sync").textContent, add: document.querySelector("#addBtn").hidden, empty: document.querySelector("#listItems").innerText.slice(0, 40) }));
   check("blocked storage says so and hides Add event", st.sync === "Not saving" && st.add && /isn't saving/.test(st.empty), st);
+
+  // ---------------------------------------------------------------- full storage: saved events still show and can be exported
+  const pf = await newPage({ viewport: { width: 1200, height: 800 } }, () => {
+    localStorage.setItem("chronoglobe:events:v1", JSON.stringify([{ id: "keep-me", title: "Saved before the quota filled", year: 1815, month: 6, day: 18, place: "Waterloo, Belgium", lat: 50.68, lng: 4.412, category: "conflict", description: "", example: false, createdAt: 1 }]));
+    Storage.prototype.setItem = function () { throw new DOMException("full", "QuotaExceededError"); };
+  });
+  await pf.click("#tabAll"); await pf.waitForTimeout(150);
+  st = await pf.evaluate(() => ({ sync: document.querySelector("#sync").textContent, add: document.querySelector("#addBtn").hidden, n: document.querySelector("#countAll").textContent, exp: !!document.querySelector(".data-tools .btn") }));
+  check("full storage still shows saved events and offers Export", st.sync === "Storage full" && st.add && st.n === "1" && st.exp, st);
 
   // ---------------------------------------------------------------- phones
   for (const width of [320, 360, 390, 430]) {
