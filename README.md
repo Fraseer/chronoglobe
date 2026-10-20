@@ -1,0 +1,68 @@
+# Chronoglobe
+
+A personal logbook for historical events. Each event is a point on a rotatable 3D globe. Drag the timeline underneath to move through history; events within a few years of the slider light up on the globe, on the timeline and in the sidebar.
+
+Built for keeping track of the events from daily history guessing games like [Anno](https://anno-game.netlify.app/), but it works for any list of dated, placed events.
+
+## Using it
+
+- **Globe**: drag to spin, scroll or pinch to zoom. Clicking a point centres the globe on it and opens its details.
+- **Timeline**: drag along it, type a year (e.g. `44 BC`), step ±1 or ±10 years, jump between events, or press play.
+  - **Window** sets how close an event's year must be to count as a match (exact year up to ±100 years).
+  - **Weighted / Even** changes the scale: weighted gives recent centuries more room.
+  - **Follow** turns the globe toward matching events as you move through time.
+- **Sidebar**: *This year* lists the events in the current window; *Full timeline* lists everything in date order, grouped by century.
+- **Add event**: title, year (BC/AD), optional day and month, place, optional category and description. Pick the place by typing a city or country (about 240 historic places and every country are built in) or by clicking the globe.
+
+## Where events are saved
+
+Events are stored in your browser's `localStorage`, on this device only. Nothing is sent anywhere.
+
+- Another browser, another device or a private window starts with its own, separate list.
+- Clearing site data for the page deletes the events.
+- Use **Export backup** (at the bottom of *Full timeline*) to save a JSON file, and **Import backup** to load it elsewhere. Importing merges by event, so importing the same file twice doesn't create duplicates.
+
+A first visit starts with four example events, marked *Example*. **Remove examples** deletes them for good.
+
+## Running locally
+
+It's a static site with no build step. Serve the folder with any static server, for example:
+
+```sh
+node tests/server.cjs 8080      # or: python3 -m http.server 8080
+```
+
+then open <http://localhost:8080/>. Opening `index.html` straight from disk also works.
+
+## Tests
+
+End-to-end checks run in headless Chromium with Playwright:
+
+```sh
+npm install
+npx playwright install chromium
+npm test
+```
+
+They cover selecting and closing events, centring on a clicked point, the year controls, adding an event, saving across reloads, syncing between tabs, export and import, blocked storage, and layout at phone widths from 320 to 430 px. Set `CHROMIUM_PATH` to use a Chromium build you already have.
+
+## Deploying
+
+The repository root is the site. On GitHub Pages: **Settings → Pages → Build and deployment → Deploy from a branch → `main` / `(root)`**. `.nojekyll` makes Pages serve the files as they are.
+
+## Files
+
+| File | What it is |
+| --- | --- |
+| `index.html` | Page markup |
+| `styles.css` | Styles, with light and dark themes |
+| `app.js` | The app: globe, timeline, sidebar, storage |
+| `world-110m.js` | World outline data |
+| `vendor/` | d3 and topojson-client, kept in the repo so the site doesn't depend on a CDN |
+| `tests/` | Static server and end-to-end tests |
+
+## Credits
+
+- [d3](https://d3js.org) 7.9.0 and [topojson-client](https://github.com/topojson/topojson-client) 3.1.0 by Mike Bostock (ISC licence).
+- Country and land outlines from [world-atlas](https://github.com/topojson/world-atlas) 2.0.2 (ISC), based on [Natural Earth](https://www.naturalearthdata.com/) (public domain).
+- Fonts from Google Fonts: Bodoni Moda, Instrument Sans and IBM Plex Mono (SIL Open Font License).

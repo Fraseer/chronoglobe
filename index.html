@@ -1,0 +1,162 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Chronoglobe</title>
+<meta name="description" content="Log historical events on a rotatable globe and drag through time to see which ones line up with any year.">
+<meta name="theme-color" content="#f5f7f8" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#101a23" media="(prefers-color-scheme: dark)">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='14' fill='%23d99a26'/%3E%3Cellipse cx='16' cy='16' rx='6' ry='14' fill='none' stroke='%231f1504' stroke-width='1.8'/%3E%3Cpath d='M2.5 11.5h27M2.5 20.5h27' stroke='%231f1504' stroke-width='1.8'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bodoni+Moda:opsz,wght@6..96,500..700&family=IBM+Plex+Mono:wght@400;500&family=Instrument+Sans:wght@400;500;600&display=swap">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<div class="app" id="app">
+  <header class="top">
+    <div class="brand">
+      <svg viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true">
+        <circle cx="16" cy="16" r="12.5"/>
+        <ellipse cx="16" cy="16" rx="5.5" ry="12.5"/>
+        <path d="M3.8 12h24.4M3.8 20h24.4"/>
+        <path d="M16 16 L16 9.5 M16 16 L20.5 18.5" stroke-width="2" stroke-linecap="round"/>
+      </svg>
+      <span class="brand-name">Chronoglobe</span>
+    </div>
+    <p class="stats" id="stats">Loading your events…</p>
+    <div class="top-right">
+      <span class="sync" id="sync" data-state="connecting" title="">Connecting…</span>
+      <button class="btn primary" id="addBtn" type="button">
+        <svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true"><path d="M7 1.5v11M1.5 7h11" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+        Add event
+      </button>
+    </div>
+  </header>
+
+  <main class="stage">
+    <section class="globe-wrap" id="globeWrap" aria-label="Globe">
+      <canvas id="globe" role="img" aria-label="Rotatable globe with a point for each event. Events in the current time window are highlighted."></canvas>
+      <div class="hud">
+        <p class="hud-count" id="hudCount"></p>
+        <button class="hud-far" id="hudFar" type="button" hidden></button>
+      </div>
+      <div class="pick-hint" id="pickHint" hidden>Click the globe where it happened</div>
+      <ul class="legend" aria-hidden="true">
+        <li><i class="sw sw-match"></i>In the time window</li>
+        <li><i class="sw sw-other"></i>Other events</li>
+        <li><i class="sw sw-sel"></i>Selected</li>
+      </ul>
+      <div class="gctrl">
+        <button class="btn toggle" id="followBtn" type="button" aria-pressed="true" title="Turn the globe toward matching events as you move through time">Follow</button>
+        <button class="btn icon" id="zoomOut" type="button" aria-label="Zoom out"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 8h10" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg></button>
+        <button class="btn icon" id="zoomIn" type="button" aria-label="Zoom in"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 3v10M3 8h10" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg></button>
+        <button class="btn icon" id="resetView" type="button" aria-label="Reset zoom"><svg viewBox="0 0 16 16" fill="none" aria-hidden="true"><circle cx="8" cy="8" r="5.5" stroke="currentColor" stroke-width="1.5"/><path d="M2.5 8h11M8 2.5c-2 2-2 9 0 11M8 2.5c2 2 2 9 0 11" stroke="currentColor" stroke-width="1.2"/></svg></button>
+      </div>
+    </section>
+
+    <section class="timeline" aria-label="Timeline">
+      <div class="tl-bar">
+        <div class="tl-year">
+          <label for="yearInput" class="sr-only">Year</label>
+          <input id="yearInput" class="year-input" inputmode="numeric" autocomplete="off" spellcheck="false" value="1900">
+          <button id="eraBtn" class="era-btn" type="button" aria-label="Switch between AD and BC">AD</button>
+        </div>
+        <div class="tl-steps" role="group" aria-label="Step through time">
+          <button class="btn icon" id="prevEv" type="button" title="Previous event" aria-label="Jump to previous event"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3.5 3v10" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><path d="M12.5 3.5 6 8l6.5 4.5z" fill="currentColor"/></svg></button>
+          <button class="btn step" type="button" data-step="-10" aria-label="Back 10 years">−10</button>
+          <button class="btn step" type="button" data-step="-1" aria-label="Back 1 year">−1</button>
+          <button class="btn step" type="button" data-step="1" aria-label="Forward 1 year">+1</button>
+          <button class="btn step" type="button" data-step="10" aria-label="Forward 10 years">+10</button>
+          <button class="btn icon" id="nextEv" type="button" title="Next event" aria-label="Jump to next event"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M12.5 3v10" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><path d="M3.5 3.5 10 8l-6.5 4.5z" fill="currentColor"/></svg></button>
+          <span class="sep" aria-hidden="true"></span>
+          <button class="btn icon" id="playBtn" type="button" aria-label="Play through time"><svg viewBox="0 0 16 16" aria-hidden="true"><path id="playIcon" d="M4.5 2.8 13 8l-8.5 5.2z" fill="currentColor"/></svg></button>
+        </div>
+        <div class="tl-opts">
+          <label class="inline-field" for="tolSel">Window
+            <select id="tolSel">
+              <option value="0">Exact year</option>
+              <option value="1">± 1 year</option>
+              <option value="5">± 5 years</option>
+              <option value="10">± 10 years</option>
+              <option value="25">± 25 years</option>
+              <option value="50">± 50 years</option>
+              <option value="100">± 100 years</option>
+            </select>
+          </label>
+          <div class="seg" role="group" aria-label="Timeline scale">
+            <button type="button" data-scale="recent" aria-pressed="true" title="Gives recent centuries more room">Weighted</button>
+            <button type="button" data-scale="even" aria-pressed="false" title="Every year gets the same width">Even</button>
+          </div>
+        </div>
+      </div>
+      <div class="tl-track" id="tlTrack" role="slider" tabindex="0" aria-label="Year" aria-valuemin="-2999" aria-valuemax="2026" aria-valuenow="1900">
+        <canvas id="tlCanvas"></canvas>
+      </div>
+    </section>
+
+    <aside class="panel" aria-label="Events">
+      <div class="tabs" role="tablist">
+        <button class="tab" id="tabNow" role="tab" type="button" aria-selected="true">This year <span class="count" id="countNow">0</span></button>
+        <button class="tab" id="tabAll" role="tab" type="button" aria-selected="false">Full timeline <span class="count" id="countAll">0</span></button>
+      </div>
+      <div class="panel-body" id="panelBody">
+        <div class="view" id="listView">
+          <div class="list-tools" id="allTools" hidden>
+            <label class="sr-only" for="search">Search events</label>
+            <input id="search" type="search" placeholder="Search events" autocomplete="off">
+            <label class="sr-only" for="catFilter">Category</label>
+            <select id="catFilter"><option value="">All categories</option></select>
+          </div>
+          <div id="listItems"></div>
+        </div>
+
+        <div class="view" id="detailView" hidden></div>
+
+        <form class="form" id="formView" hidden novalidate>
+          <div class="d-top">
+            <button class="btn ghost" type="button" id="formBack">← Back</button>
+          </div>
+          <h2 id="formTitle">Add an event</h2>
+          <label class="f"><span>What happened</span><input id="fTitle" maxlength="200" placeholder="e.g. Battle of Hastings" autocomplete="off"></label>
+          <div class="f-row">
+            <label class="f"><span>Year</span><input id="fYear" inputmode="numeric" placeholder="1066" autocomplete="off"></label>
+            <label class="f"><span>Era</span><select id="fEra"><option value="AD">AD</option><option value="BC">BC</option></select></label>
+          </div>
+          <div class="f-row date">
+            <label class="f"><span>Day <em>optional</em></span><input id="fDay" inputmode="numeric" maxlength="2" placeholder="14" autocomplete="off"></label>
+            <label class="f"><span>Month <em>optional</em></span><select id="fMonth"><option value="">No month</option></select></label>
+          </div>
+          <label class="f"><span>Place</span><input id="fPlace" list="placeList" maxlength="120" placeholder="Type a city or country, or click the globe" autocomplete="off"></label>
+          <div class="loc">
+            <div class="loc-text none" id="fLocText">No location yet. Click the globe or pick a place above.</div>
+            <div class="loc-row">
+              <label class="f"><span>Latitude</span><input id="fLat" inputmode="text" placeholder="51.50" autocomplete="off"></label>
+              <label class="f"><span>Longitude</span><input id="fLng" inputmode="text" placeholder="-0.12" autocomplete="off"></label>
+            </div>
+          </div>
+          <label class="f"><span>Category <em>optional</em></span><select id="fCat"><option value="">None</option></select></label>
+          <label class="f"><span>Description <em>optional</em></span><textarea id="fDesc" rows="4" maxlength="4000" placeholder="What happened, and why it mattered"></textarea></label>
+          <p class="form-err" id="formErr" role="alert" hidden></p>
+          <div class="form-actions">
+            <button class="btn primary" type="submit" id="fSave">Save event</button>
+            <button class="btn" type="button" id="formCancel">Cancel</button>
+          </div>
+        </form>
+      </div>
+    </aside>
+  </main>
+</div>
+<datalist id="placeList"></datalist>
+<div class="tip" id="tip" hidden></div>
+<div class="toast" id="toast" hidden></div>
+<div class="sr-only" id="toastLive" role="status"></div>
+<input type="file" id="importFile" accept=".json,application/json" hidden>
+
+<script src="vendor/d3.min.js"></script>
+<script src="vendor/topojson-client.min.js"></script>
+<script src="world-110m.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
