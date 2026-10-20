@@ -598,7 +598,7 @@ const globe = (() => {
     nudgeSpin(v) {
       if (pointers.size > 0) return;
       anim = null; inertia = null; spinning = false;
-      spinTarget = clamp(v, -1, 1); spinAt = performance.now();
+      spinTarget = clamp(v, -1.5, 1.5); spinAt = performance.now();
       request();
     },
     labelsShown() { return labelAlpha > 0.5; },
@@ -785,7 +785,9 @@ const timeline = (() => {
       scrub.v = scrub.samples ? scrub.v * 0.5 + v * 0.5 : v * 0.5;
       scrub.samples = (scrub.samples || 0) + 1;
       scrub.lx = ev.clientX; scrub.lt = t;
-      if (!state.locked) globe.nudgeSpin(0.3 * scrub.v + 0.1 * scrub.v * Math.abs(scrub.v));
+      // a phone's timeline is short and fingers move it slowly, so touch drags spin three times as fast
+      const boost = ev.pointerType === "touch" ? 3 : 1;
+      if (!state.locked) globe.nudgeSpin(boost * (0.3 * scrub.v + 0.1 * scrub.v * Math.abs(scrub.v)));
       return;
     }
     if (ev.pointerType !== "mouse") return;
@@ -1261,7 +1263,7 @@ function eventRow(e, opts) {
   const sub = [fmtDayMonth(e), e.place, e.category ? CAT_LABEL[e.category] : ""].filter(Boolean).join(" · ");
   return h("button", {
     class: "ev" + (isMatch ? " is-match" : ""), type: "button", "aria-current": String(e.id === state.selectedId), "data-year": String(e.year),
-    onclick: () => selectEvent(e.id, { fly: true, setYear: opts.setYear }),
+    onclick: () => selectEvent(e.id, { fly: true }),
   }, mk, h("span", { class: "y", text: fmtYear(e.year) }), h("span", { class: "b" }, h("span", { class: "t", text: e.title }), sub ? h("span", { class: "p", text: sub }) : null), tail);
 }
 function renderList() {
@@ -1284,7 +1286,7 @@ function renderList() {
       if (wider) row.append(h("button", { class: "btn ghost", type: "button", text: `Widen to ±${yrs(wider)}`, onclick: () => { state.tol = wider; tolSel.value = String(wider); savePrefs(); update(); settleYear(); } }));
       out.push(row);
     }
-    for (const m of matchList) out.push(eventRow(m.e, { showOffset: true, setYear: false }));
+    for (const m of matchList) out.push(eventRow(m.e, { showOffset: true }));
   } else {
     const q = state.query.trim().toLowerCase();
     const list = state.events.filter((e) => (!state.cat || e.category === state.cat) &&
@@ -1295,7 +1297,7 @@ function renderList() {
     for (const e of list) {
       const k = periodKey(e.year);
       if (k !== key) { key = k; out.push(h("h3", { class: "grp", text: periodLabel(e.year) })); }
-      out.push(eventRow(e, { showOffset: false, setYear: true }));
+      out.push(eventRow(e, { showOffset: false }));
     }
     out.push(dataTools());
   }
@@ -1357,7 +1359,9 @@ function selectEvent(id, opts = {}) {
   const e = byId(id);
   if (!e) return;
   state.selectedId = id;
-  if (opts.setYear) { stopPlay(); setYear(e.year, { settle: false }); }
+  // picking an event anywhere moves the timeline to its year
+  stopPlay();
+  setYear(e.year, { settle: false });
   if (opts.fly !== false) globe.flyTo(e.lng, e.lat, { zoom: opts.zoom });
   state.view = "detail";
   confirmDelete = false;

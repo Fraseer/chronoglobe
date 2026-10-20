@@ -52,13 +52,14 @@ function check(name, ok, info) {
   const pos = await p.evaluate(({ w, h }) => { const R = Math.max(60, Math.min(w, h * 1.02) / 2 - 30); return d3.geoOrthographic().clipAngle(90).rotate([118.341, -34.102]).scale(R).translate([w / 2, h / 2])([-80.604, 28.608]); }, { w: gb.width, h: gb.height });
   await p.mouse.click(gb.x + pos[0], gb.y + pos[1]); await p.waitForTimeout(1800);
   await p.mouse.move(gb.x + gb.width / 2 + 1, gb.y + gb.height / 2 + 1); await p.waitForTimeout(150);
-  st = await p.evaluate(() => ({ title: document.querySelector(".d-title")?.textContent, tip: document.querySelector("#tip").hidden ? null : document.querySelector("#tip b").textContent }));
+  st = await p.evaluate(() => ({ title: document.querySelector(".d-title")?.textContent, tip: document.querySelector("#tip").hidden ? null : document.querySelector("#tip b").textContent, year: document.querySelector("#yearInput").value }));
   check("clicking a globe point opens it and centres the globe on it", st.title === "Apollo 11 launches to the Moon" && st.tip === "Apollo 11 launches to the Moon", st);
+  check("clicking a globe point moves the timeline to its year", st.year === "1969", st);
   await p.mouse.click(gb.x + gb.width / 2, gb.y + gb.height * 0.9); await p.waitForTimeout(150);
   check("clicking empty globe closes the details", await p.evaluate(() => document.querySelector("#detailView").hidden));
 
   await p.click("#yearInput"); await p.keyboard.type("1066"); await p.keyboard.press("Escape");
-  check("Escape cancels a typed year", (await val(p, "#yearInput")) === "1977");
+  check("Escape cancels a typed year", (await val(p, "#yearInput")) === "1969");
 
   // add an event, then reload: it must still be there
   await p.click("#addBtn");
@@ -168,6 +169,32 @@ function check(name, ok, info) {
   const fadingLater = await g.evaluate(() => window.__chronoglobe.fading());
   check("points that leave the window fade out over a few seconds", fadingNow === 2 && fadingLater === 0, { fadingNow, fadingLater });
   await g.context().close();
+
+  // ---------------------------------------------------------------- touch drags spin three times as fast as the same mouse drag
+  const tg = await newPage({ viewport: { width: 1200, height: 860 }, hasTouch: true });
+  await tg.evaluate(() => { window.__peak = 0; (function loop() { window.__peak = Math.max(window.__peak, window.__chronoglobe.spin()); requestAnimationFrame(loop); })(); });
+  const ttr = await tg.locator("#tlTrack").boundingBox();
+  const cdp = await tg.context().newCDPSession(tg);
+  async function paced(kind) {
+    await tg.evaluate(() => { window.__peak = 0; });
+    const x0 = ttr.x + ttr.width * 0.3, y = ttr.y + 40;
+    if (kind === "touch") await cdp.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [{ x: x0, y }] });
+    else { await tg.mouse.move(x0, y); await tg.mouse.down(); }
+    for (let i = 1; i <= 15; i++) {
+      await tg.waitForTimeout(40);
+      if (kind === "touch") await cdp.send("Input.dispatchTouchEvent", { type: "touchMove", touchPoints: [{ x: x0 + i * 10, y }] });
+      else await tg.mouse.move(x0 + i * 10, y);
+    }
+    await tg.waitForTimeout(100);
+    const peak = await tg.evaluate(() => window.__peak);
+    if (kind === "touch") await cdp.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
+    else await tg.mouse.up();
+    await tg.waitForFunction(() => window.__chronoglobe.spin() === 0, null, { timeout: 8000 });
+    return peak;
+  }
+  const mousePeak = await paced("mouse"), touchPeak = await paced("touch");
+  check("a touch drag on the timeline spins the globe about 3x faster", touchPeak > mousePeak * 2.2, { mouseDegPerSec: Math.round(mousePeak * 1000), touchDegPerSec: Math.round(touchPeak * 1000) });
+  await tg.context().close();
 
   // ---------------------------------------------------------------- other events in the same year
   const sy = await newPage({ viewport: { width: 1400, height: 860 } }, () => {
