@@ -1,0 +1,1 @@
+Firebase JS SDK 12.19.0 compat builds (`firebase-app-compat.js`, `firebase-auth-compat.js`, `firebase-firestore-compat.js`), copied unchanged from the `firebase` npm package. Apache License 2.0, Copyright Google LLC. Loaded only when `firebase-config.js` names a project.

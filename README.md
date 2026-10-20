@@ -16,7 +16,22 @@ Built for keeping track of the events from daily history guessing games like [An
 - **Sidebar**: *This year* lists the events in the current window; *Full timeline* lists everything in date order, grouped by century. An event's details also list the other events from the same year.
 - **Add event**: title, year (BC/AD), optional day and month, place, optional category and description. Pick the place by typing a city or country and choosing from the suggestions (about 240 historic places and the 177 countries on the map are built in), or by clicking the globe.
 
-## Where events are saved
+## Syncing between devices
+
+With a Firebase project set in `firebase-config.js`, a **Sign in to sync** button appears. Signing in with Google keeps your events in your account, so your phone and computer show the same logbook and changes appear on the other device within a second or two. Firestore also keeps a copy on each device, so the app works offline and catches up when the connection is back.
+
+- The first time you sign in on a device, the events already in that browser are added to your account (if an event exists on both sides, the most recently edited copy wins). After that the browser's own list is empty, and signing out shows that empty list until you sign in again.
+- Only you can read or write your events: the rules in `firestore.rules` limit each account to its own `users/<uid>/events`.
+- Without a Firebase project (`window.CHRONOGLOBE_FIREBASE = null`), everything works as described below, saved in the browser only.
+
+### Setting up Firebase
+
+1. Create a project at <https://console.firebase.google.com> (the free Spark plan is plenty).
+2. **Add app → Web**, register it, and copy the `firebaseConfig` object into `firebase-config.js` as `window.CHRONOGLOBE_FIREBASE = { ... }`. These values identify the project; they aren't secrets.
+3. **Authentication → Sign-in method → Google → Enable**. Then **Authentication → Settings → Authorized domains → Add domain** with the site's domain (for example `fraseer.github.io`).
+4. **Firestore Database → Create database** in production mode, then paste `firestore.rules` into the **Rules** tab and **Publish**.
+
+## Where events are saved (signed out)
 
 Events are stored in your browser's `localStorage`, on this device only. They never leave your browser (the page does load its fonts from Google Fonts).
 
@@ -49,7 +64,7 @@ npx playwright install chromium
 npm test
 ```
 
-They cover selecting and closing events, centring on a clicked point, the timeline spinning the globe (and Lock stopping it), names hiding while dragging, points fading out, the same-year list, cancelling a typed year, adding and editing events, saving across reloads, syncing between tabs, export and import (including keeping newer edits and rejecting bad files), full and blocked storage, and layout at phone widths from 320 to 430 px. Set `CHROMIUM_PATH` to use a Chromium build you already have.
+They cover syncing between two devices (with a stand-in for Firebase: signing in, live updates, deletes, signing out and back in), selecting and closing events, centring on a clicked point, the timeline spinning the globe (and Lock stopping it), names hiding while dragging, points fading out, the same-year list, cancelling a typed year, adding and editing events, saving across reloads, syncing between tabs, export and import (including keeping newer edits and rejecting bad files), full and blocked storage, and layout at phone widths from 320 to 430 px. Set `CHROMIUM_PATH` to use a Chromium build you already have.
 
 ## Deploying
 
@@ -63,11 +78,14 @@ The repository root is the site. On GitHub Pages: **Settings → Pages → Build
 | `styles.css` | Styles, with light and dark themes |
 | `app.js` | The app: globe, timeline, sidebar, storage |
 | `world-110m.js` | World outline data |
-| `vendor/` | d3 and topojson-client, kept in the repo so the site doesn't depend on a CDN |
+| `firebase-config.js` | Firebase project for syncing (null = browser only) |
+| `firestore.rules` | Database rules: each account reads and writes only its own events |
+| `vendor/` | d3, topojson-client and the Firebase SDK (loaded only when sync is set up), kept in the repo so the site doesn't depend on a CDN |
 | `tests/` | Static server and end-to-end tests |
 
 ## Credits
 
 - [d3](https://d3js.org) 7.9.0 and [topojson-client](https://github.com/topojson/topojson-client) 3.1.0 by Mike Bostock (ISC licence).
 - Country and land outlines from [world-atlas](https://github.com/topojson/world-atlas) 2.0.2 (ISC), based on [Natural Earth](https://www.naturalearthdata.com/) (public domain).
+- [Firebase JS SDK](https://github.com/firebase/firebase-js-sdk) 12.19.0 compat builds (Apache 2.0).
 - Fonts from Google Fonts: Bodoni Moda, Instrument Sans and IBM Plex Mono (SIL Open Font License).

@@ -74,6 +74,7 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .sync::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--line-2); }
 .sync[data-state="local"]::before { background: var(--sage); box-shadow: 0 0 0 1px var(--land-edge); }
 .sync[data-state="blocked"]::before, .sync[data-state="full"]::before { background: var(--danger); }
+.sync[data-state="offline"]::before { background: var(--line-2); box-shadow: 0 0 0 1px var(--muted); }
 
 /* ---------- buttons */
 .btn {

@@ -27,6 +27,7 @@
     <p class="stats" id="stats">Loading your events…</p>
     <div class="top-right">
       <span class="sync" id="sync" data-state="connecting" title="">Connecting…</span>
+      <button class="btn" id="signInBtn" type="button" hidden>Sign in to sync</button>
       <button class="btn primary" id="addBtn" type="button">
         <svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true"><path d="M7 1.5v11M1.5 7h11" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
         Add event
@@ -156,6 +157,7 @@
 <script src="vendor/d3.min.js"></script>
 <script src="vendor/topojson-client.min.js"></script>
 <script src="world-110m.js"></script>
+<script src="firebase-config.js"></script>
 <script src="app.js"></script>
 </body>
 </html>

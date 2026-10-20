@@ -4,7 +4,59 @@ const path = require("path");
 const fs = require("fs");
 const os = require("os");
 const { chromium } = require("playwright");
+const http = require("http");
 const { startServer } = require("./server.cjs");
+
+// Stand-in for the Firebase compat SDK: the auth and Firestore calls app.js makes, backed by a
+// shared in-memory store on a local server so separate browser contexts behave like separate devices.
+function mockFirebase(cloudUrl) {
+  const AUTH_KEY = "mock-firebase-user";
+  let user = null;
+  try { user = JSON.parse(localStorage.getItem(AUTH_KEY) || "null"); } catch (_) {}
+  const authListeners = [];
+  const emitAuth = () => authListeners.forEach((f) => f(user));
+  const call = (method, body, q = "") => fetch(cloudUrl + q, { method, body: body ? JSON.stringify(body) : undefined }).then((r) => r.json());
+  const pulls = new Set();
+  const poke = () => pulls.forEach((f) => f());
+  const docRef = (uid, id) => ({
+    id,
+    set: (data) => call("POST", { op: "set", uid, id, data }).then(poke),
+    delete: () => call("POST", { op: "delete", uid, id }).then(poke),
+  });
+  const eventsOf = (uid) => ({
+    doc: (id) => docRef(uid, id),
+    onSnapshot(opts, next, error) {
+      let stopped = false, last = null;
+      const pull = async () => {
+        if (stopped) return;
+        try {
+          const rows = await call("GET", null, "?uid=" + encodeURIComponent(uid));
+          const key = JSON.stringify(rows);
+          if (key !== last) { last = key; next({ docs: rows.map((r) => ({ id: r.id, data: () => r.data })), metadata: { hasPendingWrites: false, fromCache: false } }); }
+        } catch (e) { if (error) error({ code: "unavailable" }); }
+      };
+      pulls.add(pull); pull();
+      const timer = setInterval(pull, 250);
+      return () => { stopped = true; clearInterval(timer); pulls.delete(pull); };
+    },
+  });
+  const auth = {
+    onAuthStateChanged(cb) { authListeners.push(cb); setTimeout(() => cb(user), 20); return () => {}; },
+    getRedirectResult: () => Promise.resolve(null),
+    signInWithPopup() { user = { uid: "u-fraser", email: "fraser@example.com" }; localStorage.setItem(AUTH_KEY, JSON.stringify(user)); setTimeout(emitAuth, 10); return Promise.resolve({ user }); },
+    signInWithRedirect() { return this.signInWithPopup(); },
+    signOut() { user = null; localStorage.removeItem(AUTH_KEY); setTimeout(emitAuth, 10); return Promise.resolve(); },
+  };
+  function GoogleAuthProvider() { this.setCustomParameters = () => {}; }
+  const authFn = () => auth;
+  authFn.GoogleAuthProvider = GoogleAuthProvider;
+  const db = {
+    enablePersistence: () => Promise.resolve(),
+    collection: () => ({ doc: (uid) => ({ collection: () => eventsOf(uid) }) }),
+    batch() { const ops = []; return { set(ref, data) { ops.push(() => ref.set(data)); return this; }, async commit() { for (const op of ops) await op(); } }; },
+  };
+  window.firebase = { apps: [], initializeApp(cfg) { this.apps.push(cfg); }, auth: authFn, firestore: () => db };
+}
 
 const ROOT = path.resolve(__dirname, "..");
 let fails = 0;
@@ -232,6 +284,74 @@ function check(name, ok, info) {
   st = await ids();
   check("a removed new example doesn't come back", st === "ex-guillotine,ex-gutenberg,mine", st);
   await old.context().close();
+
+  // ---------------------------------------------------------------- syncing between devices (Firebase stand-in)
+  const cloudDocs = new Map();
+  const cloudServer = http.createServer((req, res) => {
+    const headers = { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST", "Content-Type": "application/json" };
+    if (req.method === "OPTIONS") { res.writeHead(204, headers).end(); return; }
+    const uid = new URL(req.url, "http://x").searchParams.get("uid");
+    if (req.method === "GET") { res.writeHead(200, headers).end(JSON.stringify([...(cloudDocs.get(uid) || new Map())].map(([id, data]) => ({ id, data })).sort((a, b) => a.id.localeCompare(b.id)))); return; }
+    let body = ""; req.on("data", (c) => (body += c)); req.on("end", () => {
+      const op = JSON.parse(body);
+      if (!cloudDocs.has(op.uid)) cloudDocs.set(op.uid, new Map());
+      if (op.op === "set") cloudDocs.get(op.uid).set(op.id, op.data); else cloudDocs.get(op.uid).delete(op.id);
+      res.writeHead(200, headers).end("{}");
+    });
+  });
+  await new Promise((r) => cloudServer.listen(0, "127.0.0.1", r));
+  const CLOUD = `http://127.0.0.1:${cloudServer.address().port}/`;
+  const inCloud = () => [...(cloudDocs.get("u-fraser") || new Map()).values()].map((d) => d.title).sort();
+  async function device(seed) {
+    const ctx = await browser.newContext({ viewport: { width: 1300, height: 860 }, reducedMotion: "reduce" });
+    await ctx.route(/fonts\.(googleapis|gstatic)\.com/, (r) => r.fulfill({ body: "", contentType: "text/css" }));
+    await ctx.route("**/firebase-config.js", (r) => r.fulfill({ body: 'window.CHRONOGLOBE_FIREBASE = { projectId: "test" };', contentType: "text/javascript" }));
+    const page = await ctx.newPage();
+    page.on("pageerror", (e) => errors.push(e.message));
+    await page.addInitScript(mockFirebase, CLOUD);
+    if (seed) await page.addInitScript(seed);
+    await page.goto(BASE); await page.waitForTimeout(1500);
+    return page;
+  }
+  const count = (pg) => pg.evaluate(() => document.querySelector("#countAll").textContent);
+  const desk = await device();
+  st = await desk.evaluate(() => ({ btn: !document.querySelector("#signInBtn").hidden, sync: document.querySelector("#sync").textContent, n: document.querySelector("#countAll").textContent }));
+  check("with sync set up, a signed-out device offers Sign in and still saves in the browser", st.btn && st.sync === "Saved in this browser" && st.n === "6", st);
+  await desk.click("#signInBtn"); await desk.waitForTimeout(1500);
+  st = await desk.evaluate(() => ({ sync: document.querySelector("#sync").textContent, n: document.querySelector("#countAll").textContent, local: localStorage.getItem("chronoglobe:events:v1"), btn: document.querySelector("#signInBtn").hidden, toast: document.querySelector("#toast").textContent }));
+  check("signing in moves this browser's events into the account", st.sync === "Synced" && st.n === "6" && inCloud().length === 6 && st.local === "[]" && st.btn && /Added 6 events/.test(st.toast), { ...st, cloud: inCloud().length });
+  await desk.click("#addBtn");
+  await desk.fill("#fTitle", "Added on desktop"); await desk.fill("#fYear", "1815");
+  await desk.fill("#fPlace", "Waterloo, Belgium"); await desk.dispatchEvent("#fPlace", "input");
+  await desk.click("#fSave"); await desk.waitForTimeout(600);
+  check("an event added while signed in is saved to the account", inCloud().includes("Added on desktop"), inCloud());
+
+  // a second device that already has its own event in the browser
+  const phone = await device(() => {
+    if (!localStorage.getItem("chronoglobe:events:v1")) localStorage.setItem("chronoglobe:events:v1", JSON.stringify([{ id: "phone-1", title: "Added on phone", year: 1066, lat: 50.91, lng: 0.49, createdAt: 5 }]));
+  });
+  await phone.click("#signInBtn"); await phone.waitForTimeout(1500);
+  st = { phone: await count(phone), cloud: inCloud() };
+  check("signing in on a second device shows the account's events plus its own", st.phone === "8" && st.cloud.includes("Added on phone") && st.cloud.includes("Added on desktop") && st.cloud.length === 8, st);
+  await desk.waitForTimeout(800);
+  check("the first device picks up the second device's event without reloading", (await count(desk)) === "8");
+
+  await phone.click("#tabAll"); await phone.click('#listItems .ev >> text=Added on desktop'); await phone.waitForTimeout(900);
+  await phone.click("#detailView .btn.danger"); await phone.click("#detailView .btn.danger-solid"); await phone.waitForTimeout(800);
+  st = { desk: await count(desk), phone: await count(phone), cloud: inCloud().length };
+  check("deleting on one device removes it everywhere", st.desk === "7" && st.phone === "7" && st.cloud === 7, st);
+
+  await desk.reload(); await desk.waitForTimeout(1500);
+  st = await desk.evaluate(() => ({ sync: document.querySelector("#sync").textContent, n: document.querySelector("#countAll").textContent }));
+  check("after a reload the device is still signed in and shows the account's events", st.sync === "Synced" && st.n === "7", st);
+
+  await desk.click("#tabAll"); await desk.click(".data-tools .btn >> text=Sign out"); await desk.waitForTimeout(800);
+  st = await desk.evaluate(() => ({ sync: document.querySelector("#sync").textContent, n: document.querySelector("#countAll").textContent, empty: document.querySelector("#listItems .empty")?.innerText.slice(0, 60), btn: !document.querySelector("#signInBtn").hidden }));
+  check("signing out leaves an empty browser logbook that offers Sign in", st.sync === "Saved in this browser" && st.n === "0" && /Sign in/.test(st.empty || "") && st.btn, st);
+  await desk.click("#signInBtn"); await desk.waitForTimeout(1500);
+  st = { n: await count(desk), cloud: inCloud().length };
+  check("signing back in shows the same events with no duplicates", st.n === "7" && st.cloud === 7, st);
+  await desk.context().close(); await phone.context().close(); cloudServer.close();
 
   // ---------------------------------------------------------------- blocked storage
   const pb = await newPage({ viewport: { width: 1200, height: 800 } }, () => { Storage.prototype.setItem = function () { throw new DOMException("blocked", "SecurityError"); }; });
