@@ -124,6 +124,8 @@ function check(name, ok, info) {
   const tb = await p.locator("#tlTrack").boundingBox();
   for (const fx of [0.1, 0.5, 0.66]) await p.mouse.click(tb.x + tb.width * fx, tb.y + 40);
   check("the form survives clicks on the timeline", (await val(p, "#fTitle")) === "Founding of Rome (test)");
+  check("Save stays off until category is chosen", await p.isDisabled("#fSave"));
+  await p.selectOption("#fCat", "culture"); if (!(await p.inputValue("#fDesc"))) await p.fill("#fDesc", "Test description.");
   await p.click("#fSave"); await p.waitForTimeout(800);
   st = await p.evaluate(() => document.querySelector("#detailView .d-year")?.textContent);
   check("saving shows the new event's details", st === "21 April 753 BC", st);
@@ -166,6 +168,7 @@ function check(name, ok, info) {
   await p.click("#tabAll"); await p.click('#listItems .ev[data-year="-2559"]'); await p.waitForTimeout(900);
   await p.click("#detailView .btn >> text=Edit");
   await p.fill("#fTitle", "Great Pyramid of Giza (my notes)");
+  await p.selectOption("#fCat", "culture"); if (!(await p.inputValue("#fDesc"))) await p.fill("#fDesc", "Test description.");
   await p.click("#fSave"); await p.waitForTimeout(500);
   await p.setInputFiles("#importFile", file); await p.waitForTimeout(400);
   st = await p.evaluate(() => ({ titles: JSON.parse(localStorage.getItem("chronoglobe:events:v1")).map((r) => r.title), toast: document.querySelector("#toast").textContent }));
@@ -324,6 +327,7 @@ function check(name, ok, info) {
   await desk.click("#addBtn");
   await desk.fill("#fTitle", "Added on desktop"); await desk.fill("#fYear", "1815");
   await desk.fill("#fPlace", "Waterloo, Belgium"); await desk.dispatchEvent("#fPlace", "input");
+  await desk.selectOption("#fCat", "culture"); if (!(await desk.inputValue("#fDesc"))) await desk.fill("#fDesc", "Test description.");
   await desk.click("#fSave"); await desk.waitForTimeout(600);
   check("an event added while signed in is saved to the account", inCloud().includes("Added on desktop"), inCloud());
 
@@ -353,6 +357,7 @@ function check(name, ok, info) {
   await desk.click("#addBtn");
   await desk.fill("#fTitle", "Added while signed out"); await desk.fill("#fYear", "1666");
   await desk.fill("#fPlace", "London, United Kingdom"); await desk.dispatchEvent("#fPlace", "input");
+  await desk.selectOption("#fCat", "culture"); if (!(await desk.inputValue("#fDesc"))) await desk.fill("#fDesc", "Test description.");
   await desk.click("#fSave"); await desk.waitForTimeout(400);
   await desk.click("#signInBtn"); await desk.waitForTimeout(1500);
   st = { n: await count(desk), cloud: inCloud().length, local: await desk.evaluate(() => localStorage.getItem("chronoglobe:events:v1")) };

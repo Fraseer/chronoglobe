@@ -1649,6 +1649,14 @@ const F = {
   dl.append(...[...names].sort((a, b) => a.localeCompare(b)).map((n) => h("option", { value: n })));
   MONTHS.forEach((m, i) => F.month.append(h("option", { value: String(i + 1), text: m })));
 })();
+// Save stays off until everything but the day and month is filled in
+function formComplete() {
+  const y = parseYear(F.year.value, F.era.value);
+  return !!(F.title.value.trim() && y != null && !Number.isNaN(y) && F.place.value.trim() && state.draft && F.cat.value && F.desc.value.trim());
+}
+function updateSave() { if (F.save.textContent !== "Saving…") F.save.disabled = !formComplete(); }
+$("#formView").addEventListener("input", updateSave);
+$("#formView").addEventListener("change", updateSave);
 function openForm(id) {
   stopPlay();
   const e = id ? byId(id) : null;
@@ -1673,6 +1681,7 @@ function openForm(id) {
   $("#panelBody").scrollTop = 0;
   F.title.focus({ preventScroll: true });
   if (narrow.matches) $("#formView").scrollIntoView({ block: "start", behavior: reduceMotion.matches ? "auto" : "smooth" });
+  updateSave();
 }
 function closeForm() {
   state.view = state.editingId && byId(state.editingId) ? "detail" : "list";
@@ -1702,6 +1711,7 @@ function renderDraft() {
     F.lat.value = ""; F.lng.value = "";
   }
   globe.request();
+  updateSave();
 }
 function tryPlace() {
   const p = PLACE_INDEX.get(F.place.value.trim().toLowerCase());
@@ -1755,7 +1765,8 @@ $("#formView").addEventListener("submit", async (ev) => {
     handleWriteError(err);
     formError(describeError(err));
   } finally {
-    F.save.disabled = false; F.save.textContent = state.editingId ? "Save changes" : "Save event";
+    F.save.textContent = state.editingId ? "Save changes" : "Save event";
+    updateSave();
   }
 });
 
