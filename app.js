@@ -962,7 +962,25 @@ const EXAMPLES = [
   { id: "ex-gutenberg", title: "Gutenberg Bible printed", year: 1455, month: null, day: null, place: "Mainz, Germany", lat: 49.993, lng: 8.247, category: "science", description: "The first major book printed in Europe with movable metal type.", example: true, createdAt: 1792440001000 },
   { id: "ex-apollo", title: "Apollo 11 launches to the Moon", year: 1969, month: 7, day: 16, place: "Cape Canaveral, USA", lat: 28.608, lng: -80.604, category: "exploration", description: "Launched from Kennedy Space Center. Armstrong and Aldrin walked on the Moon four days later, on 20 July.", example: true, createdAt: 1792440002000 },
   { id: "ex-constantinople", title: "Fall of Constantinople", year: 1453, month: 5, day: 29, place: "Istanbul (Constantinople), Turkey", lat: 41.008, lng: 28.978, category: "conflict", description: "Ottoman forces under Mehmed II captured the city, ending the Byzantine Empire.", example: true, createdAt: 1792440003000 },
+  // a pair that surprises people by sharing a year
+  { id: "ex-star-wars", title: "Star Wars opens in cinemas", year: 1977, month: 5, day: 25, place: "Hollywood, Los Angeles, USA", lat: 34.102, lng: -118.341, category: "culture", description: "George Lucas's space opera opened on 32 screens across the United States, including Mann's Chinese Theatre in Hollywood.", example: true, createdAt: 1792440004000 },
+  { id: "ex-guillotine", title: "Last execution by guillotine in France", year: 1977, month: 9, day: 10, place: "Marseille, France", lat: 43.216, lng: 5.426, category: "politics", description: "Hamida Djandoubi was executed at Baumettes Prison, the last person put to death in France. Star Wars had been in cinemas for three and a half months. France abolished the death penalty in 1981.", example: true, createdAt: 1792440005000 },
 ];
+// examples this browser has already been given, so ones added later reach existing logbooks once
+// and anything removed stays removed; logbooks from before this was tracked had the first four
+const SEEN_KEY = "chronoglobe:examples-seen:v1";
+const FIRST_EXAMPLES = ["ex-giza", "ex-gutenberg", "ex-apollo", "ex-constantinople"];
+function addNewExamples() {
+  let seen;
+  try { seen = JSON.parse(lsGet(SEEN_KEY) || "null"); } catch (_) { seen = null; }
+  if (!Array.isArray(seen)) seen = FIRST_EXAMPLES;
+  const fresh = EXAMPLES.filter((e) => !seen.includes(e.id));
+  if (!fresh.length) return;
+  const rows = readLocal();
+  const have = new Set(rows.map((r) => r && r.id));
+  for (const e of fresh) if (!have.has(e.id)) rows.push(e);
+  if (lsSet(LOCAL_KEY, JSON.stringify(rows))) lsSet(SEEN_KEY, JSON.stringify(EXAMPLES.map((e) => e.id)));
+}
 function readLocal() { try { const a = JSON.parse(lsGet(LOCAL_KEY) || "[]"); return Array.isArray(a) ? a : []; } catch (_) { return []; } }
 function writeLocal(rows) { if (!lsSet(LOCAL_KEY, JSON.stringify(rows))) throw { code: "local_blocked" }; }
 // "ok", "full" (the site's quota is used up; reads still work) or "blocked" (storage turned off)
@@ -986,7 +1004,12 @@ function loadLocal() { state.events = readLocal().map((r) => normEvent(r && r.id
 function initStore() {
   const probe = probeStorage();
   state.store = probe === "ok" ? "local" : probe;
-  if (probe === "ok" && lsGet(LOCAL_KEY) == null) lsSet(LOCAL_KEY, JSON.stringify(EXAMPLES));
+  if (probe === "ok") {
+    if (lsGet(LOCAL_KEY) == null) {
+      lsSet(LOCAL_KEY, JSON.stringify(EXAMPLES));
+      lsSet(SEEN_KEY, JSON.stringify(EXAMPLES.map((e) => e.id)));
+    } else addNewExamples();
+  }
   loadLocal();
   renderChrome();
   eventsChanged();
