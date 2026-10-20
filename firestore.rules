@@ -1,9 +1,32 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    // each signed-in person reads and writes only their own events
+    // each signed-in person reads and writes only their own events,
+    // and an event may hold only the app's fields, each within a sensible size
     match /users/{uid}/events/{eventId} {
-      allow read, write: if request.auth != null && request.auth.uid == uid;
+      allow read, delete: if request.auth != null && request.auth.uid == uid;
+      allow create, update: if request.auth != null && request.auth.uid == uid
+        && eventId.size() <= 80
+        && validEvent(request.resource.data, eventId);
+    }
+
+    function validEvent(e, eventId) {
+      return e.keys().hasOnly(['id', 'title', 'year', 'month', 'day', 'place', 'lat', 'lng',
+                               'category', 'description', 'example', 'createdAt', 'updatedAt'])
+        && e.keys().hasAll(['title', 'year', 'lat', 'lng'])
+        && e.get('id', eventId) == eventId
+        && e.title is string && e.title.size() <= 200
+        && e.year is int && e.year >= -99998 && e.year <= 3000
+        && (e.get('month', null) == null || (e.month is int && e.month >= 1 && e.month <= 12))
+        && (e.get('day', null) == null || (e.day is int && e.day >= 1 && e.day <= 31))
+        && e.lat is number && e.lat >= -90 && e.lat <= 90
+        && e.lng is number && e.lng >= -180 && e.lng <= 180
+        && e.get('place', '') is string && e.get('place', '').size() <= 120
+        && e.get('category', '') is string && e.get('category', '').size() <= 20
+        && e.get('description', '') is string && e.get('description', '').size() <= 4000
+        && e.get('example', false) is bool
+        && e.get('createdAt', 0) is number
+        && e.get('updatedAt', 0) is number;
     }
   }
 }

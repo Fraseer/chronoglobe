@@ -21,7 +21,7 @@ Built for keeping track of the events from daily history guessing games like [An
 With a Firebase project set in `firebase-config.js`, a **Sign in to sync** button appears. Signing in with Google keeps your events in your account, so your phone and computer show the same logbook and changes appear on the other device within a second or two. Firestore also keeps a copy on each device, so the app works offline and catches up when the connection is back.
 
 - The first time you sign in on a device, the events already in that browser are added to your account (if an event exists on both sides, the most recently edited copy wins). After that the browser's own list is empty, and signing out shows that empty list until you sign in again.
-- Only you can read or write your events: the rules in `firestore.rules` limit each account to its own `users/<uid>/events`.
+- Only you can read or write your events: the rules in `firestore.rules` limit each account to its own `users/<uid>/events`, and accept only the app's event fields within size limits (title up to 200 characters, place 120, description 4,000, sensible years and coordinates).
 - Without a Firebase project (`window.CHRONOGLOBE_FIREBASE = null`), everything works as described below, saved in the browser only.
 
 ### Setting up Firebase
@@ -79,7 +79,7 @@ The repository root is the site. On GitHub Pages: **Settings → Pages → Build
 | `app.js` | The app: globe, timeline, sidebar, storage |
 | `world-110m.js` | World outline data |
 | `firebase-config.js` | Firebase project for syncing (null = browser only) |
-| `firestore.rules` | Database rules: each account reads and writes only its own events |
+| `firestore.rules` | Database rules: each account reads and writes only its own events, with field and size limits |
 | `vendor/` | d3, topojson-client and the Firebase SDK (loaded only when sync is set up), kept in the repo so the site doesn't depend on a CDN |
 | `tests/` | Static server and end-to-end tests |
 
