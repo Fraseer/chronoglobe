@@ -297,6 +297,7 @@ button, input, select, textarea { font: inherit; color: inherit; }
   }
 }
 @media (max-width: 520px) {
+  .top-right { flex-wrap: wrap; justify-content: flex-end; row-gap: 8px; min-width: 0; }
   .legend { display: none; }
   .stats { order: 3; flex-basis: 100%; }
   .top-right { margin-left: auto; }

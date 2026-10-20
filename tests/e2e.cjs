@@ -303,8 +303,8 @@ function check(name, ok, info) {
   await new Promise((r) => cloudServer.listen(0, "127.0.0.1", r));
   const CLOUD = `http://127.0.0.1:${cloudServer.address().port}/`;
   const inCloud = () => [...(cloudDocs.get("u-fraser") || new Map()).values()].map((d) => d.title).sort();
-  async function device(seed) {
-    const ctx = await browser.newContext({ viewport: { width: 1300, height: 860 }, reducedMotion: "reduce" });
+  async function device(seed, opts = {}) {
+    const ctx = await browser.newContext({ viewport: { width: 1300, height: 860 }, reducedMotion: "reduce", ...opts });
     await ctx.route(/fonts\.(googleapis|gstatic)\.com/, (r) => r.fulfill({ body: "", contentType: "text/css" }));
     await ctx.route("**/firebase-config.js", (r) => r.fulfill({ body: 'window.CHRONOGLOBE_FIREBASE = { projectId: "test" };', contentType: "text/javascript" }));
     const page = await ctx.newPage();
@@ -320,7 +320,7 @@ function check(name, ok, info) {
   check("with sync set up, a signed-out device offers Sign in and still saves in the browser", st.btn && st.sync === "Saved in this browser" && st.n === "6", st);
   await desk.click("#signInBtn"); await desk.waitForTimeout(1500);
   st = await desk.evaluate(() => ({ sync: document.querySelector("#sync").textContent, n: document.querySelector("#countAll").textContent, local: localStorage.getItem("chronoglobe:events:v1"), btn: document.querySelector("#signInBtn").hidden, toast: document.querySelector("#toast").textContent }));
-  check("signing in moves this browser's events into the account", st.sync === "Synced" && st.n === "6" && inCloud().length === 6 && st.local === "[]" && st.btn && /Added 6 events/.test(st.toast), { ...st, cloud: inCloud().length });
+  check("signing in moves this browser's events into the account", st.sync === "Synced" && st.n === "6" && inCloud().length === 6 && st.local === "[]" && st.btn && /Signed in/.test(st.toast), { ...st, cloud: inCloud().length });
   await desk.click("#addBtn");
   await desk.fill("#fTitle", "Added on desktop"); await desk.fill("#fYear", "1815");
   await desk.fill("#fPlace", "Waterloo, Belgium"); await desk.dispatchEvent("#fPlace", "input");
@@ -334,6 +334,7 @@ function check(name, ok, info) {
   await phone.click("#signInBtn"); await phone.waitForTimeout(1500);
   st = { phone: await count(phone), cloud: inCloud() };
   check("signing in on a second device shows the account's events plus its own", st.phone === "8" && st.cloud.includes("Added on phone") && st.cloud.includes("Added on desktop") && st.cloud.length === 8, st);
+  check("a second device's example events don't join an account that already has events", inCloud().filter((t) => t === "Star Wars opens in cinemas").length === 1, inCloud());
   await desk.waitForTimeout(800);
   check("the first device picks up the second device's event without reloading", (await count(desk)) === "8");
 
@@ -349,9 +350,17 @@ function check(name, ok, info) {
   await desk.click("#tabAll"); await desk.click(".data-tools .btn >> text=Sign out"); await desk.waitForTimeout(800);
   st = await desk.evaluate(() => ({ sync: document.querySelector("#sync").textContent, n: document.querySelector("#countAll").textContent, empty: document.querySelector("#listItems .empty")?.innerText.slice(0, 60), btn: !document.querySelector("#signInBtn").hidden }));
   check("signing out leaves an empty browser logbook that offers Sign in", st.sync === "Saved in this browser" && st.n === "0" && /Sign in/.test(st.empty || "") && st.btn, st);
+  await desk.click("#addBtn");
+  await desk.fill("#fTitle", "Added while signed out"); await desk.fill("#fYear", "1666");
+  await desk.fill("#fPlace", "London, United Kingdom"); await desk.dispatchEvent("#fPlace", "input");
+  await desk.click("#fSave"); await desk.waitForTimeout(400);
   await desk.click("#signInBtn"); await desk.waitForTimeout(1500);
-  st = { n: await count(desk), cloud: inCloud().length };
-  check("signing back in shows the same events with no duplicates", st.n === "7" && st.cloud === 7, st);
+  st = { n: await count(desk), cloud: inCloud().length, local: await desk.evaluate(() => localStorage.getItem("chronoglobe:events:v1")) };
+  check("signing back in adds events made while signed out, with no duplicates", st.n === "8" && st.cloud === 8 && inCloud().includes("Added while signed out") && st.local === "[]", st);
+  const narrowPhone = await device(null, { viewport: { width: 360, height: 800 }, isMobile: true, hasTouch: true });
+  st = await narrowPhone.evaluate(() => ({ sw: document.documentElement.scrollWidth, btn: !document.querySelector("#signInBtn").hidden }));
+  check("the phone header fits at 360px with the Sign in button", st.sw === 360 && st.btn, st);
+  await narrowPhone.context().close();
   await desk.context().close(); await phone.context().close(); cloudServer.close();
 
   // ---------------------------------------------------------------- blocked storage

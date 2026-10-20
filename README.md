@@ -20,7 +20,7 @@ Built for keeping track of the events from daily history guessing games like [An
 
 With a Firebase project set in `firebase-config.js`, a **Sign in to sync** button appears. Signing in with Google keeps your events in your account, so your phone and computer show the same logbook and changes appear on the other device within a second or two. Firestore also keeps a copy on each device, so the app works offline and catches up when the connection is back.
 
-- The first time you sign in on a device, the events already in that browser are added to your account (if an event exists on both sides, the most recently edited copy wins). After that the browser's own list is empty, and signing out shows that empty list until you sign in again.
+- When you sign in, events kept in that browser while signed out are added to your account (if an event exists on both sides, the most recently edited copy wins), then cleared from the browser so nothing is added twice. Example events only join a brand-new account, so examples you've removed don't come back from another device.
 - Only you can read or write your events: the rules in `firestore.rules` limit each account to its own `users/<uid>/events`, and accept only the app's event fields within size limits (title up to 200 characters, place 120, description 4,000, sensible years and coordinates).
 - Without a Firebase project (`window.CHRONOGLOBE_FIREBASE = null`), everything works as described below, saved in the browser only.
 
@@ -29,7 +29,9 @@ With a Firebase project set in `firebase-config.js`, a **Sign in to sync** butto
 1. Create a project at <https://console.firebase.google.com> (the free Spark plan is plenty).
 2. **Add app → Web** and register it. Firebase then shows a snippet starting with `import { initializeApp } from "firebase/app"`; that form is for build tools and won't run here. Copy only the values inside `const firebaseConfig = { ... }` into `firebase-config.js` as `window.CHRONOGLOBE_FIREBASE = { apiKey: "...", authDomain: "...", ... };` (the app loads Firebase itself; `measurementId` isn't needed). These values identify the project; they aren't secrets.
 3. **Authentication → Sign-in method → Google → Enable**. Then **Authentication → Settings → Authorized domains → Add domain** with the site's domain (for example `fraseer.github.io`).
-4. **Firestore Database → Create database** in production mode, then paste `firestore.rules` into the **Rules** tab and **Publish**.
+4. **Firestore Database → Create database** in production mode, then paste `firestore.rules` into the **Rules** tab and **Publish**. Whenever `firestore.rules` changes in this repo, paste and publish it again; it isn't deployed automatically.
+
+Sign-in needs the site to be opened from a web address listed under Authorized domains; opened straight from disk, the app stays browser-only.
 
 ## Where events are saved (signed out)
 

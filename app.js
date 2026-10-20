@@ -1104,7 +1104,7 @@ function importEvents(file) {
       rows = Array.isArray(data) ? data : data && Array.isArray(data.events) ? data.events : null;
     } catch (_) { rows = null; }
     if (!rows) { toast("That file isn't a Chronoglobe backup."); return; }
-    const incoming = rows.map((r) => normEvent(r && typeof r.id === "string" && r.id ? r.id.slice(0, 80) : newId(), r)).filter(Boolean);
+    const incoming = rows.map((r) => normEvent(r && safeId(r.id) ? r.id : newId(), r)).filter(Boolean);
     if (!incoming.length) { toast("No events found in that file."); return; }
     // merge by id; when both sides have an event, keep whichever was edited last
     const current = state.store === "cloud" ? state.events.map(toRow) : readLocal().filter((r) => r && r.id);
@@ -1160,7 +1160,8 @@ function loadScript(src) {
 }
 async function initCloud() {
   const cfg = window.CHRONOGLOBE_FIREBASE;
-  if (!cfg || typeof cfg !== "object") return;
+  // Google sign-in needs a web address; opened from disk the app stays browser-only
+  if (!cfg || typeof cfg !== "object" || !/^https?:$/.test(location.protocol)) { if (state.store === "connecting") initStore(); return; }
   try {
     // fetched only when sync is set up
     if (!window.firebase) for (const f of ["app", "auth", "firestore"]) await loadScript(`vendor/firebase/firebase-${f}-compat.js`);
@@ -1196,10 +1197,8 @@ async function signIn() {
   } catch (err) {
     const code = err && err.code;
     if (code === "auth/popup-closed-by-user" || code === "auth/cancelled-popup-request") return;
-    if (code === "auth/popup-blocked" || code === "auth/operation-not-supported-in-this-environment") {
-      cloud.auth.signInWithRedirect(provider).catch((e) => toast(authMessage(e)));
-      return;
-    }
+    // redirect sign-in can't work from github.io with a firebaseapp.com auth domain in today's browsers, so ask again instead
+    if (code === "auth/popup-blocked") { toast("Your browser blocked the sign-in window. Tap Sign in again, or allow pop-ups for this site."); return; }
     toast(authMessage(err));
   }
 }
@@ -1211,7 +1210,9 @@ const eventsCol = () => cloud.db.collection("users").doc(cloud.user.uid).collect
 function cloudWriteFailed(err) {
   toast(err && err.code === "permission-denied"
     ? "Your account refused that change. Check the Firestore rules in the Firebase console."
-    : "A change didn't sync. It will be retried when the connection is back.");
+    : `That change couldn't be saved to your account (${(err && err.code) || "error"}). Reload and try again.`);
+  cloud.failed = true;
+  renderChrome();
 }
 function writeCloud(rows) {
   for (let i = 0; i < rows.length; i += 400) {
@@ -1263,27 +1264,38 @@ function stopCloud() {
 }
 // the first time an account is used on this browser, its local events join the account
 // (newer copy wins), then the browser's own list is emptied so nothing is added twice
+// on each sign-in, events kept in this browser while signed out join the account (newer copy wins),
+// then leave the browser's list so nothing is added twice. Example events join only a brand-new
+// account, so examples removed on one device don't come back from another.
 async function mergeLocalIntoCloud() {
   const uid = cloud.user && cloud.user.uid;
-  if (!uid || lsGet(MERGED_PREFIX + uid)) return;
+  if (!uid) return;
+  const firstEver = !state.events.length && !lsGet(MERGED_PREFIX + uid);
   const have = new Map(state.events.map((e) => [e.id, e]));
-  const up = readLocal().map((r) => normEvent(r && r.id, r)).filter(Boolean)
+  const local = readLocal().map((r) => normEvent(r && r.id, r)).filter(Boolean);
+  const handled = new Set(local.map((e) => e.id));
+  const up = local.filter((e) => (firstEver || !e.example) && safeId(e.id))
     .filter((e) => { const c = have.get(e.id); return !c || stamp(e) > stamp(c); });
   try {
     for (let i = 0; i < up.length; i += 400) {
       const batch = cloud.db.batch();
       for (const e of up.slice(i, i + 400)) batch.set(eventsCol().doc(e.id), toRow(e));
       await batch.commit();
+      if (!cloud.user || cloud.user.uid !== uid) return;   // signed out meanwhile: leave the browser's list alone
     }
   } catch (err) {
     cloud.merged = false;
-    toast("Couldn't add this browser's events to your account. They're still here and will be added next time.");
+    toast("Couldn't add this browser's events to your account. They're still in this browser and will be added next time you sign in.");
     return;
   }
   lsSet(MERGED_PREFIX + uid, "1");
-  lsSet(LOCAL_KEY, "[]");
-  toast(up.length ? `Added ${yrsWord(up.length, "event")} from this browser to your account` : "Signed in. Your events now sync between devices.");
+  // re-read: only remove what this merge looked at, keeping anything added since
+  lsSet(LOCAL_KEY, JSON.stringify(readLocal().filter((r) => !(r && handled.has(r.id)))));
+  const n = up.filter((e) => !e.example).length;
+  toast(n ? `Added ${yrsWord(n, "event")} from this browser to your account` : "Signed in. Your events sync between devices.");
 }
+// ids Firestore accepts as document names
+function safeId(id) { return typeof id === "string" && id && id.length <= 80 && !id.includes("/") && id !== "." && id !== ".." && !/^__.*__$/.test(id); }
 
 $("#importFile").addEventListener("change", (ev) => {
   const f = ev.target.files && ev.target.files[0];
@@ -1333,12 +1345,13 @@ function renderChrome() {
   const email = cloud.user && cloud.user.email ? cloud.user.email : "your Google account";
   if (cloud.available) labels.local[1] = "Events are stored in this browser only. Sign in to keep them in your account and see them on your other devices.";
   labels.cloud = cloud.failed ? ["Not syncing", "Your synced events couldn't be loaded. Reload to try again."]
-    : cloud.offline && cloud.serverSeen ? ["Offline", "Changes are kept on this device and sync when you're back online."]
-    : cloud.offline || cloud.pending ? ["Syncing…", `Saving to ${email}`]
+    : cloud.offline && (cloud.serverSeen || !navigator.onLine) ? ["Offline", "Changes are kept on this device and sync when you're back online."]
+    : !cloud.serverSeen ? ["Connecting…", `Signed in as ${email}`]
+    : cloud.pending ? ["Syncing…", `Saving to ${email}`]
     : ["Synced", `Signed in as ${email}. Events sync to every device where you sign in.`];
   const [t, title] = labels[state.store] || labels.connecting;
   sync.textContent = t; sync.title = title;
-  sync.dataset.state = state.store !== "cloud" ? state.store : cloud.failed ? "blocked" : cloud.offline && cloud.serverSeen ? "offline" : "local";
+  sync.dataset.state = state.store !== "cloud" ? state.store : cloud.failed ? "blocked" : cloud.offline && (cloud.serverSeen || !navigator.onLine) ? "offline" : !cloud.serverSeen ? "connecting" : "local";
   $("#addBtn").hidden = !canWrite();
   $("#signInBtn").hidden = !(cloud.available && state.store !== "cloud" && state.store !== "connecting");
 }
@@ -1482,7 +1495,15 @@ function renderList() {
   box.replaceChildren(...out);
 }
 function emptyState() {
-  if (state.store === "cloud" && !cloud.seen) return h("p", { class: "list-head", text: "Loading your synced events…" });
+  if (state.store === "cloud") {
+    const out = cloud.failed
+      ? [h("h3", { text: "Couldn't load your synced events" }), h("p", { text: "Reload the page to try again, or sign out to use this browser on its own." })]
+      : !cloud.seen ? [h("p", { text: "Loading your synced events…" })]
+      : [h("h3", { text: "Your logbook is empty" }), h("p", { text: "Add an event and it will appear on every device where you sign in." })];
+    return h("div", { class: "empty" }, ...out, h("div", { class: "row" },
+      !cloud.failed && cloud.seen ? h("button", { class: "btn primary", type: "button", text: "Add your first event", onclick: () => openForm(null) }) : null,
+      h("button", { class: "btn ghost", type: "button", text: "Sign out", onclick: signOut })));
+  }
   const offerSignIn = cloud.available && state.store !== "cloud";
   if (state.store === "blocked") {
     return h("div", { class: "empty" },
