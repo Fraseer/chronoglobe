@@ -44,7 +44,7 @@ Events are stored in your browser's `localStorage`, on this device only. They ne
 
 Export a backup now and then; it's the only copy that survives the browser clearing its storage.
 
-A first visit starts with six example events, marked *Example*, including a pair from 1977 that people rarely expect to share a year. **Remove examples** deletes them for good. If later versions add new examples, an existing logbook gets them once; ones you've removed don't come back.
+A first visit starts with six events already in the logbook, including a pair from 1977 that people rarely expect to share a year. They're ordinary events: edit or delete them like any other, and ones you delete don't come back.
 
 ## Running locally
 

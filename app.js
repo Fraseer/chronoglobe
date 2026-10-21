@@ -961,7 +961,8 @@ playBtn.addEventListener("click", () => { if (play) stopPlay(); else startPlay()
 // ======================================================================
 const canWrite = () => state.store === "local" || state.store === "cloud";
 const stamp = (e) => e.updatedAt || e.createdAt || 0;
-// a few marked examples for a first visit, so the globe and timeline have something to show
+// starter events for a first visit, so the globe and timeline have something to show.
+// They carry an internal example flag (never shown) so removing one on a device doesn't bring it back from another.
 const EXAMPLES = [
   { id: "ex-giza", title: "Great Pyramid of Giza completed", year: -2559, month: null, day: null, place: "Giza, Egypt", lat: 29.979, lng: 31.134, category: "culture", description: "Built as the tomb of the pharaoh Khufu. The date is approximate, around 2560 BC.", example: true, createdAt: 1792440000000 },
   { id: "ex-gutenberg", title: "Gutenberg Bible printed", year: 1455, month: null, day: null, place: "Mainz, Germany", lat: 49.993, lng: 8.247, category: "science", description: "The first major book printed in Europe with movable metal type.", example: true, createdAt: 1792440001000 },
@@ -1452,7 +1453,6 @@ function eventRow(e, opts) {
   if (isMatch) mk.style.setProperty("--s", String(0.45 + 0.55 * strength(d)));
   let tail = null;
   if (opts.showOffset && isMatch) tail = h("span", { class: "off" + (d === 0 ? " exact" : ""), text: offText(e, d) });
-  else if (e.example) tail = h("span", { class: "badge", text: "Example" });
   const sub = [fmtDayMonth(e), e.place, e.category ? CAT_LABEL[e.category] : ""].filter(Boolean).join(" · ");
   return h("button", {
     class: "ev" + (isMatch ? " is-match" : ""), type: "button", "aria-current": String(e.id === state.selectedId), "data-year": String(e.year),
@@ -1465,8 +1465,6 @@ function renderList() {
   const out = [];
   if (!state.loaded) { box.replaceChildren(h("p", { class: "list-head", text: "Loading your events…" })); return; }
   if (!state.events.length) { box.replaceChildren(emptyState()); return; }
-  const examples = state.events.filter((e) => e.example);
-  if (examples.length && canWrite()) out.push(examplesBanner(examples));
   if (state.tab === "now") {
     const n = matchList.length;
     out.push(h("p", { class: "list-head" }, n ? h("b", { text: `${n} ${n === 1 ? "event" : "events"}` }) : "Nothing", " " + windowPhrase()));
@@ -1544,29 +1542,6 @@ function dataTools() {
       state.store === "cloud" ? h("button", { class: "btn ghost", type: "button", text: "Sign out", onclick: signOut }) : null,
       cloud.available && state.store === "local" ? h("button", { class: "btn ghost", type: "button", text: "Sign in to sync", onclick: signIn }) : null));
 }
-let confirmExamples = false, deletingExamples = false;
-function examplesBanner(examples) {
-  const box = h("div", { class: "examples" });
-  const n = examples.length, label = n === 1 ? "1 example" : `${n} examples`;
-  if (deletingExamples) {
-    box.append(h("p", { text: "Removing the example events…" }), h("div", { class: "row" }, h("button", { class: "btn", type: "button", disabled: true, text: "Deleting…" })));
-  } else if (!confirmExamples) {
-    box.append(h("p", { text: `${n === 1 ? "1 example event is" : `${n} example events are`} loaded so you can try things out. Your own events sit alongside them.` }),
-      h("div", { class: "row" }, h("button", { class: "btn", type: "button", text: "Remove examples", onclick: () => { confirmExamples = true; renderList(); } })));
-  } else {
-    const go = h("button", { class: "btn danger-solid", type: "button", text: `Delete ${label}` });
-    go.addEventListener("click", async () => {
-      if (deletingExamples) return;
-      deletingExamples = true; renderList();
-      try { for (const e of examples) await removeEvent(e.id); toast("Examples removed"); }
-      catch (err) { handleWriteError(err); toast(describeError(err)); }
-      finally { deletingExamples = false; confirmExamples = false; renderList(); }
-    });
-    box.append(h("p", { text: `Delete the ${label}? Events you added stay.` }),
-      h("div", { class: "row" }, go, h("button", { class: "btn", type: "button", text: "Keep them", onclick: () => { confirmExamples = false; renderList(); } })));
-  }
-  return box;
-}
 
 // ---------- selection & detail
 function selectEvent(id, opts = {}) {
@@ -1604,7 +1579,7 @@ function renderDetail() {
   const kids = [
     h("div", { class: "d-top" },
       h("button", { class: "btn ghost", type: "button", text: narrow.matches ? "Close" : "← Back", onclick: () => closeDetail({ focus: true }) }),
-      e.example ? h("span", { class: "badge", text: "Example" }) : null),
+      null),
     h("div", null,
       h("div", { class: "d-year", text: fmtDate(e) }),
       h("h2", { class: "d-title", tabindex: "-1", text: e.title })),

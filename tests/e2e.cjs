@@ -91,8 +91,8 @@ function check(name, ok, info) {
   // ---------------------------------------------------------------- desktop
   const p = await newPage({ viewport: { width: 1400, height: 860 } });
   let st = await p.evaluate(() => ({ rows: document.querySelectorAll("#listItems .ev").length, sel: document.querySelectorAll('.ev[aria-current="true"]').length, sync: document.querySelector("#sync").textContent }));
-  check("first visit seeds 6 examples; starts in 1977 with its two events lit and nothing selected", st.rows === 2 && st.sel === 0 && st.sync === "Saved in this browser", st);
-  check("examples are written to localStorage", ((await stored(p)) || []).length === 6);
+  check("first visit seeds 6 starter events; starts in 1977 with its two events lit and nothing selected", st.rows === 2 && st.sel === 0 && st.sync === "Saved in this browser", st);
+  check("starter events are written to localStorage", ((await stored(p)) || []).length === 6);
 
   await p.click("#listItems .ev >> nth=0"); await p.waitForTimeout(1200);
   st = await p.evaluate(() => ({ title: document.querySelector(".d-title")?.textContent, focus: document.activeElement?.className }));
@@ -151,11 +151,16 @@ function check(name, ok, info) {
   const exported = JSON.parse(fs.readFileSync(file, "utf8"));
   check("Export backup downloads every event", /^chronoglobe-events-\d{4}-\d{2}-\d{2}\.json$/.test(dl.suggestedFilename()) && exported.app === "chronoglobe" && exported.events.length === 6, { name: dl.suggestedFilename(), n: exported.events && exported.events.length });
 
-  // remove examples: they must not come back after reload
-  await p.click("#listItems .examples .btn"); await p.click("#listItems .examples .btn.danger-solid"); await p.waitForTimeout(400);
+  // starter events look like any other event, and deleted ones stay deleted
+  st = await p.evaluate(() => ({ badges: document.body.innerText.includes("EXAMPLE") || document.body.innerText.includes("Remove examples") }));
+  check("starter events show no example badge or banner", !st.badges, st);
+  for (let i = 0; i < 6; i++) {
+    await p.click("#tabAll"); await p.click("#listItems .ev >> nth=0"); await p.waitForTimeout(300);
+    await p.click("#detailView .btn.danger"); await p.click("#detailView .btn.danger-solid"); await p.waitForTimeout(200);
+  }
   await p.reload(); await p.waitForTimeout(1200);
   st = await p.evaluate(() => ({ n: document.querySelector("#countAll").textContent, empty: !!document.querySelector("#listItems .empty") }));
-  check("removed examples stay removed after a reload", st.n === "0" && st.empty, st);
+  check("deleted starter events stay deleted after a reload", st.n === "0" && st.empty, st);
 
   // import the backup back in, then import again (updates, no duplicates)
   await p.setInputFiles("#importFile", file); await p.waitForTimeout(400);
