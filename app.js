@@ -1692,7 +1692,7 @@ function closeForm() {
 }
 function setDraft(lat, lng, source) {
   state.draft = { lat: clamp(lat, -90, 90), lng: ((lng + 540) % 360) - 180 };
-  if (source === "globe" && (state.placeAuto || !F.place.value.trim())) {
+  if ((source === "globe" || source === "inputs") && (state.placeAuto || !F.place.value.trim())) {
     F.place.value = describeLocation(state.draft.lng, state.draft.lat);
     state.placeAuto = true;
   }
@@ -1721,11 +1721,34 @@ function tryPlace() {
 }
 F.place.addEventListener("input", () => { state.placeAuto = false; tryPlace(); });
 F.place.addEventListener("change", tryPlace);
-for (const inp of [F.lat, F.lng]) inp.addEventListener("input", () => {
-  const lat = parseFloat(F.lat.value), lng = parseFloat(F.lng.value);
-  if (Number.isFinite(lat) && Number.isFinite(lng) && Math.abs(lat) <= 90 && Math.abs(lng) <= 180) setDraft(lat, lng, "inputs");
-});
-for (const inp of [F.lat, F.lng]) inp.addEventListener("change", () => { if (state.draft) globe.flyTo(state.draft.lng, state.draft.lat); });
+// one coordinate as typed or pasted: "51.5074", "-0.1278", "51,5", "51.5° N", "0.12 W"
+function parseCoord(text, axis) {
+  const m = String(text || "").trim().toUpperCase().replace(/(\d),(\d)/g, "$1.$2").match(/^([+-]?\d+(?:\.\d+)?)\s*°?\s*([NSEW])?$/);
+  if (!m) return NaN;
+  let v = parseFloat(m[1]);
+  if (m[2]) {
+    if ((axis === "lat") !== (m[2] === "N" || m[2] === "S")) return NaN;
+    if (m[2] === "S" || m[2] === "W") v = -Math.abs(v);
+  }
+  return v;
+}
+let coordFly = 0;
+function coordsTyped(ev) {
+  // a pasted pair ("51.5074, -0.1278" or "51.5° N, 0.12° W") is split across both boxes
+  const COORD = "([+-]?\\d+(?:\\.\\d+)?\\s*°?\\s*[NSEWnsew]?)";
+  const pair = ev.target.value.match(new RegExp("^\\s*" + COORD + "\\s*[,;\\s]\\s*" + COORD + "\\s*$"));
+  if (pair && Number.isFinite(parseCoord(pair[1], "lat")) && Number.isFinite(parseCoord(pair[2], "lng"))) {
+    F.lat.value = pair[1].trim(); F.lng.value = pair[2].trim();
+  }
+  const lat = parseCoord(F.lat.value, "lat"), lng = parseCoord(F.lng.value, "lng");
+  if (!Number.isFinite(lat) || !Number.isFinite(lng) || Math.abs(lat) > 90 || Math.abs(lng) > 180) return;
+  const typed = [F.lat.value, F.lng.value];
+  setDraft(lat, lng, "inputs");
+  [F.lat.value, F.lng.value] = typed;   // keep what was typed rather than the rounded copy
+  clearTimeout(coordFly);
+  coordFly = setTimeout(() => { if (state.draft) globe.flyTo(state.draft.lng, state.draft.lat); }, 450);
+}
+for (const inp of [F.lat, F.lng]) inp.addEventListener("input", coordsTyped);
 $("#formBack").addEventListener("click", closeForm);
 $("#formCancel").addEventListener("click", closeForm);
 $("#addBtn").addEventListener("click", () => openForm(null));

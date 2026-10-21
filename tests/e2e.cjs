@@ -253,6 +253,19 @@ function check(name, ok, info) {
   check("a touch drag on the timeline spins the globe about 3x faster", touchPeak > mousePeak * 2.2, { mouseDegPerSec: Math.round(mousePeak * 1000), touchDegPerSec: Math.round(touchPeak * 1000) });
   await tg.context().close();
 
+  // ---------------------------------------------------------------- typing coordinates sets the location
+  const co = await newPage({ viewport: { width: 1300, height: 860 } });
+  await co.click("#addBtn");
+  await co.fill("#fTitle", "Coordinates test"); await co.fill("#fYear", "1666");
+  await co.selectOption("#fCat", "disaster"); await co.fill("#fDesc", "Typed by hand.");
+  await co.fill("#fLat", "51.5074"); await co.fill("#fLng", "-0.1278"); await co.waitForTimeout(900);
+  st = await co.evaluate(() => ({ place: document.querySelector("#fPlace").value, pin: document.querySelector("#fLocText").textContent, save: !document.querySelector("#fSave").disabled, view: window.__chronoglobe.view().rot }));
+  check("typing latitude and longitude pins it, fills the place and turns the globe", /London/.test(st.place) && /51\.51° N, 0\.13° W/.test(st.pin) && st.save && Math.abs(st.view[0] - 0.128) < 1 && Math.abs(st.view[1] + 51.5) < 1, st);
+  await co.fill("#fPlace", ""); await co.fill("#fLng", ""); await co.fill("#fLat", "48.8566° N, 2.3522° E"); await co.waitForTimeout(200);
+  st = await co.evaluate(() => ({ lat: document.querySelector("#fLat").value, lng: document.querySelector("#fLng").value, place: document.querySelector("#fPlace").value }));
+  check("pasting a pair with compass letters fills both boxes", st.lat === "48.8566° N" && st.lng === "2.3522° E" && /Paris/.test(st.place), st);
+  await co.context().close();
+
   // ---------------------------------------------------------------- idle spin after a minute
   const idle = await newPage({ viewport: { width: 1200, height: 800 } }, () => {
     const real = window.setTimeout;
