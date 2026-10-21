@@ -35,7 +35,7 @@ Sign-in needs the site to be opened from a web address listed under Authorized d
 
 ## Where events are saved (signed out)
 
-Events are stored in your browser's `localStorage`, on this device only. They never leave your browser (the page does load its fonts from Google Fonts).
+Events are stored in your browser's `localStorage`, on this device only. They never leave your browser. The page does load its fonts from Google Fonts, and Google Analytics records visits (pages viewed, rough location, device), never your events.
 
 - Another browser, another device or a private window starts with its own, separate list.
 - Clearing site data for the page deletes the events. Browsers can also clear it on their own: Safari (on Mac, iPhone and iPad) deletes it after 7 days without a visit, and any browser may when the disk is nearly full. Adding the site to your iPhone or iPad Home Screen avoids Safari's 7-day rule.

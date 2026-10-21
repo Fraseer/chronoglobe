@@ -75,6 +75,7 @@ function check(name, ok, info) {
     const ctx = await browser.newContext({ reducedMotion: "reduce", ...opts });
     // keep tests offline: web fonts fall back to system faces, and sync stays off unless a test turns it on
     await ctx.route(/fonts\.(googleapis|gstatic)\.com/, (r) => r.fulfill({ body: "", contentType: "text/css" }));
+    await ctx.route(/googletagmanager\.com/, (r) => r.fulfill({ body: "", contentType: "text/javascript" }));
     await ctx.route("**/firebase-config.js", (r) => r.fulfill({ body: "window.CHRONOGLOBE_FIREBASE = null;", contentType: "text/javascript" }));
     const page = await ctx.newPage();
     page.on("pageerror", (e) => errors.push(e.message));
@@ -324,6 +325,7 @@ function check(name, ok, info) {
   async function device(seed, opts = {}) {
     const ctx = await browser.newContext({ viewport: { width: 1300, height: 860 }, reducedMotion: "reduce", ...opts });
     await ctx.route(/fonts\.(googleapis|gstatic)\.com/, (r) => r.fulfill({ body: "", contentType: "text/css" }));
+    await ctx.route(/googletagmanager\.com/, (r) => r.fulfill({ body: "", contentType: "text/javascript" }));
     await ctx.route("**/firebase-config.js", (r) => r.fulfill({ body: 'window.CHRONOGLOBE_FIREBASE = { projectId: "test" };', contentType: "text/javascript" }));
     const page = await ctx.newPage();
     page.on("pageerror", (e) => errors.push(e.message));
