@@ -6,7 +6,7 @@ Built for keeping track of the events from daily history guessing games like [An
 
 ## Using it
 
-- **Globe**: drag to spin, scroll or pinch to zoom. Clicking a point centres the globe on it and opens its details.
+- **Globe**: drag to spin, scroll or pinch to zoom. After a minute without any input it turns slowly on its own (not while locked, playing or adding an event). Clicking a point centres the globe on it and opens its details.
 - **Timeline**: drag along it, type a year (e.g. `44 BC`), step ±1 or ±10 years, jump between events, or press play.
   - Dragging the timeline spins the globe: the faster you drag, the faster it turns. While time is moving the points show without their names, and a point that leaves the window fades out over a couple of seconds.
   - When you let go, the globe turns toward the matching events if none are in view.

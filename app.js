@@ -309,7 +309,7 @@ const globe = (() => {
       if (Math.hypot(inertia.vx, inertia.vy) < 0.002) inertia = null;
       keep = true;
     } else if (spinning && !reduceMotion.matches) {
-      rot[0] += 0.008 * dt;
+      rot[0] += 0.004 * dt;
       keep = true;
     }
     draw(now);
@@ -594,6 +594,8 @@ const globe = (() => {
   return {
     request, flyTo, angleTo, resize,
     stopSpin() { spinning = false; },
+    startIdleSpin() { if (!anim && !inertia && !pointers.size) { spinning = true; request(); } },
+    isSpinning() { return spinning; },
     // deg per ms; ignored while someone is dragging the globe itself
     nudgeSpin(v) {
       if (pointers.size > 0) return;
@@ -1789,8 +1791,23 @@ function toast(msg) {
 narrow.addEventListener("change", () => renderView());
 if (document.fonts && document.fonts.ready) document.fonts.ready.then(() => { timeline.layout(); globe.request(); });
 
+// after a minute with no input, the globe turns slowly on its own (not while locked, playing or adding an event)
+const IDLE_MS = 60000;
+let idleTimer = 0;
+function resetIdle() {
+  globe.stopSpin();
+  clearTimeout(idleTimer);
+  idleTimer = setTimeout(() => {
+    if (state.locked || play || state.scrubbing || state.view === "form" || document.hidden) { resetIdle(); return; }
+    globe.startIdleSpin();
+  }, IDLE_MS);
+}
+for (const type of ["pointerdown", "wheel", "keydown"]) window.addEventListener(type, resetIdle, { capture: true, passive: true });
+document.addEventListener("visibilitychange", () => { if (!document.hidden) resetIdle(); });
+resetIdle();
+
 // read-only hooks for the end-to-end tests
-window.__chronoglobe = Object.freeze({ view: () => globe.getView(), labelsShown: () => globe.labelsShown(), spin: () => globe.spinSpeed(), fading: () => afterglow.size });
+window.__chronoglobe = Object.freeze({ idleSpinning: () => globe.isSpinning(), view: () => globe.getView(), labelsShown: () => globe.labelsShown(), spin: () => globe.spinSpeed(), fading: () => afterglow.size });
 
 // ---------- boot
 renderChrome(); renderStats(); renderView(); update();

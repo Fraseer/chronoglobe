@@ -252,6 +252,21 @@ function check(name, ok, info) {
   check("a touch drag on the timeline spins the globe about 3x faster", touchPeak > mousePeak * 2.2, { mouseDegPerSec: Math.round(mousePeak * 1000), touchDegPerSec: Math.round(touchPeak * 1000) });
   await tg.context().close();
 
+  // ---------------------------------------------------------------- idle spin after a minute
+  const idle = await newPage({ viewport: { width: 1200, height: 800 } }, () => {
+    const real = window.setTimeout;
+    window.setTimeout = (fn, ms, ...a) => real(fn, ms === 60000 ? 800 : ms, ...a);
+  });
+  await idle.mouse.click(5, 5);
+  st = { before: await idle.evaluate(() => window.__chronoglobe.idleSpinning()) };
+  await idle.waitForTimeout(1500);
+  st.after = await idle.evaluate(() => window.__chronoglobe.idleSpinning());
+  const gbi = await idle.locator("#globe").boundingBox();
+  await idle.mouse.click(gbi.x + 10, gbi.y + 10);
+  st.afterClick = await idle.evaluate(() => window.__chronoglobe.idleSpinning());
+  check("the globe starts spinning after a minute idle and stops on input", !st.before && st.after && !st.afterClick, st);
+  await idle.context().close();
+
   // ---------------------------------------------------------------- other events in the same year
   const sy = await newPage({ viewport: { width: 1400, height: 860 } }, () => {
     if (localStorage.getItem("chronoglobe:events:v1") == null) {
