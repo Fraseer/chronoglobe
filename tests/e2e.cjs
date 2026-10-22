@@ -271,6 +271,34 @@ function check(name, ok, info) {
   check("pasting a pair with compass letters fills both boxes", st.lat === "48.8566° N" && st.lng === "2.3522° E" && /Paris/.test(st.place), st);
   await co.context().close();
 
+  // ---------------------------------------------------------------- two events on one spot
+  const st2 = await newPage({ viewport: { width: 1300, height: 860 } }, () => {
+    if (!sessionStorage.getItem("seeded")) {
+      sessionStorage.setItem("seeded", "1");
+      localStorage.setItem("chronoglobe:events:v1", JSON.stringify([
+        { id: "roses", title: "Wars of the Roses begin", year: 1455, place: "London, United Kingdom", lat: 51.507, lng: -0.128, category: "conflict", description: "x", createdAt: 1 },
+        { id: "vote", title: "Women gain the vote", year: 1918, place: "London, United Kingdom", lat: 51.507, lng: -0.128, category: "politics", description: "x", createdAt: 2 },
+        { id: "far", title: "Somewhere else", year: 1900, place: "Paris", lat: 48.857, lng: 2.352, category: "other", description: "x", createdAt: 0 },
+      ]));
+    }
+  });
+  await st2.fill("#yearInput", "1920"); await st2.press("#yearInput", "Enter"); await st2.waitForTimeout(1600);
+  const gb2 = await st2.locator("#globe").boundingBox();
+  let pt = await st2.evaluate(() => window.__chronoglobe.project(-0.128, 51.507));
+  await st2.mouse.click(gb2.x + pt[0], gb2.y + pt[1]); await st2.waitForTimeout(1600);
+  st = await st2.evaluate(() => ({ title: document.querySelector(".d-title")?.textContent, fan: window.__chronoglobe.fan().map((f) => f.id), here: [...document.querySelectorAll(".same-year")].map((s) => s.innerText.replace(/\n/g, " | ")) }));
+  check("clicking a shared spot opens the event nearest the timeline's year", st.title === "Women gain the vote", st);
+  check("the other events on that spot fan out around it", st.fan.join() === "roses,vote", st);
+  check("details list other events at the same place", st.here.some((t) => /Also here: London/i.test(t) && /1455/.test(t) && /Wars of the Roses/.test(t)) && !st.here.some((t) => /Somewhere else/.test(t)), st);
+  const roses = (await st2.evaluate(() => window.__chronoglobe.fan())).find((f) => f.id === "roses");
+  await st2.mouse.click(gb2.x + roses.x, gb2.y + roses.y); await st2.waitForTimeout(900);
+  st = await st2.evaluate(() => ({ title: document.querySelector(".d-title")?.textContent, year: document.querySelector("#yearInput").value, fan: window.__chronoglobe.fan().length }));
+  check("clicking a fanned dot opens that event and moves the timeline", st.title === "Wars of the Roses begin" && st.year === "1455" && st.fan === 2, st);
+  await st2.mouse.click(gb2.x + 8, gb2.y + gb2.height - 8); await st2.waitForTimeout(300);
+  check("clicking elsewhere closes the fan", (await st2.evaluate(() => window.__chronoglobe.fan().length)) === 0);
+  await st2.screenshot({ path: path.join(os.tmpdir(), "fan-closed.png") });
+  await st2.context().close();
+
   // ---------------------------------------------------------------- idle spin after a minute
   const idle = await newPage({ viewport: { width: 1200, height: 800 } }, () => {
     const real = window.setTimeout;

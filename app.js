@@ -393,7 +393,7 @@ const globe = (() => {
     }
     // selected ring
     const sel = state.selectedId && byId(state.selectedId);
-    if (sel) {
+    if (sel && !(fan && fan.ids.includes(sel.id))) {
       const ang = d3.geoDistance([sel.lng, sel.lat], c);
       if (ang < HALF_PI) {
         const [x, y] = proj([sel.lng, sel.lat]);
@@ -416,9 +416,57 @@ const globe = (() => {
         ctx.lineWidth = 1.5; ctx.strokeStyle = C.ink; ctx.stroke();
       }
     }
-    if (labelAlpha > 0.01) drawLabels(labels);
+    drawFan(now, c);
+    if (labelAlpha > 0.01) drawLabels(fan ? labels.filter((L) => !fan.ids.includes(L.e.id)) : labels);
     const key = far.map((e) => e.id).join(",");
     if (key !== farKey) { farKey = key; farMatches = far; renderFar(far); }
+  }
+  // ---- fan: events stacked on one spot spread into a ring so each can be picked
+  let fan = null;   // { lng, lat, ids, t0 }
+  let fanHits = [];
+  function openFan(anchor, ids) {
+    fan = { lng: anchor.lng, lat: anchor.lat, ids, t0: performance.now() };
+    request();
+  }
+  function closeFan() { if (fan) { fan = null; fanHits = []; request(); } }
+  function drawFan(now, c) {
+    fanHits = [];
+    if (!fan) return;
+    fan.ids = fan.ids.filter((id) => byId(id));
+    if (fan.ids.length < 2) { fan = null; return; }
+    if (d3.geoDistance([fan.lng, fan.lat], c) > HALF_PI - 0.02) return;
+    const [cx, cy] = proj([fan.lng, fan.lat]);
+    const t = reduceMotion.matches ? 1 : Math.min(1, ((now || 0) - fan.t0) / 240);
+    const k = 1 - Math.pow(1 - t, 3);
+    if (t < 1) request();
+    const n = fan.ids.length, rad = Math.max(30, n * 8);
+    ctx.font = `600 11.5px ${FONT_BODY}`; ctx.textBaseline = "middle"; ctx.lineJoin = "round";
+    fan.ids.forEach((id, i) => {
+      const e = byId(id), a = -HALF_PI + (i * TAU) / n;
+      const x = cx + Math.cos(a) * rad * k, y = cy + Math.sin(a) * rad * k;
+      ctx.globalAlpha = 0.45 * k;
+      ctx.beginPath(); ctx.moveTo(cx, cy); ctx.lineTo(x, y); ctx.strokeStyle = C.ink; ctx.lineWidth = 1; ctx.stroke();
+      ctx.globalAlpha = 1;
+      const lit = matchMap.has(id), sel = id === state.selectedId;
+      ctx.beginPath(); ctx.arc(x, y, 7.5, 0, TAU); ctx.fillStyle = C.halo; ctx.fill();
+      ctx.beginPath(); ctx.arc(x, y, 5.5, 0, TAU); ctx.fillStyle = lit ? C.sand : C.dot; ctx.fill();
+      if (sel) { ctx.beginPath(); ctx.arc(x, y, 9.5, 0, TAU); ctx.strokeStyle = C.rose; ctx.lineWidth = 3; ctx.stroke(); }
+      fanHits.push({ e, x, y, r: 8, fan: true });
+      if (k > 0.6) {
+        const right = Math.cos(a) >= -0.01;
+        const text = (e.title.length > 28 ? e.title.slice(0, 27).trimEnd() + "…" : e.title) + "  " + fmtYear(e.year);
+        const tx = x + (right ? 13 : -13);
+        ctx.globalAlpha = (k - 0.6) / 0.4;
+        ctx.textAlign = right ? "left" : "right";
+        ctx.strokeStyle = C.halo; ctx.lineWidth = 3.5; ctx.strokeText(text, tx, y);
+        ctx.fillStyle = C.ink; ctx.fillText(text, tx, y);
+        ctx.globalAlpha = 1;
+      }
+    });
+  }
+  // every event drawn under the clicked spot
+  function stackAt(x, y) {
+    return hits.filter((hp) => Math.hypot(hp.x - x, hp.y - y) <= Math.max(hp.r + 8, 12));
   }
   function crosshair(x, y) {
     ctx.beginPath(); ctx.arc(x, y, 9, 0, TAU);
@@ -462,6 +510,8 @@ const globe = (() => {
 
   function hitAt(x, y) {
     let best = null, bd = Infinity;
+    for (const hp of fanHits) { const d = Math.hypot(hp.x - x, hp.y - y); if (d <= hp.r + 6 && d < bd) { bd = d; best = hp; } }
+    if (best) return best;
     for (const hp of hits) {
       const d = Math.hypot(hp.x - x, hp.y - y);
       if (d <= hp.r + 8 && d < bd) { bd = d; best = hp; }
@@ -497,7 +547,7 @@ const globe = (() => {
     }
     if (drag && pointers.has(ev.pointerId)) {
       const dx = ev.clientX - drag.x0, dy = ev.clientY - drag.y0;
-      if (!drag.moved && Math.hypot(dx, dy) > 4) { drag.moved = true; canvas.classList.add("dragging"); }
+      if (!drag.moved && Math.hypot(dx, dy) > 4) { drag.moved = true; canvas.classList.add("dragging"); closeFan(); }
       if (drag.moved) {
         const k = 180 / (Math.PI * R * zoom);
         rot[0] = drag.rot0[0] + dx * k;
@@ -560,8 +610,20 @@ const globe = (() => {
       }
       return;
     }
-    if (hp) selectEvent(hp.e.id, { zoom: Math.max(zoom, 1.8) });
-    else if (state.view === "detail" || state.selectedId) closeDetail();
+    if (hp && hp.fan) { selectEvent(hp.e.id, { zoom: Math.max(zoom, 1.8) }); return; }
+    if (hp) {
+      // several events on this spot: open the one nearest the timeline's year and fan out the rest
+      const stack = [...new Map(stackAt(x, y).map((s) => [s.e.id, s.e])).values()];
+      if (stack.length > 1) {
+        stack.sort((a, b) => Math.abs(a.year - state.year) - Math.abs(b.year - state.year) || dateOrder(a, b));
+        const pick = stack[0];
+        selectEvent(pick.id, { zoom: Math.max(zoom, 1.8) });
+        openFan(pick, stack.sort(dateOrder).map((e) => e.id));
+        return;
+      }
+      closeFan();
+      selectEvent(hp.e.id, { zoom: Math.max(zoom, 1.8) });
+    } else { closeFan(); if (state.view === "detail" || state.selectedId) closeDetail(); }
   }
 
   function flyTo(lng, lat, opts = {}) {
@@ -608,6 +670,9 @@ const globe = (() => {
     haltSpin,
     get farMatches() { return farMatches; },
     getView() { return { rot: [rot[0], rot[1]], zoom }; },
+    closeFan,
+    fanPoints() { return fanHits.map((h) => ({ id: h.e.id, x: h.x, y: h.y })); },
+    project(lng, lat) { return proj([lng, lat]); },
     setView(v) { if (v && Array.isArray(v.rot)) { rot[0] = +v.rot[0] || 0; rot[1] = clamp(+v.rot[1] || 0, -88, 88); } if (v && v.zoom) zoom = clamp(+v.zoom, 0.7, 8); spinning = false; request(); },
   };
 })();
@@ -1430,6 +1495,7 @@ function scrollTimelineToYear() {
 }
 function closeDetail(opts = {}) {
   if (state.view === "form") return;
+  globe.closeFan();
   state.selectedId = null; confirmDelete = false;
   if (state.view === "detail") state.view = "list";
   renderView();
@@ -1592,6 +1658,14 @@ function renderDetail() {
     kids.push(h("section", { class: "same-year", "aria-label": `Other events in ${fmtYear(e.year)}` },
       h("h3", { text: `Also in ${fmtYear(e.year)}` }),
       sameYear.map((x) => h("button", { type: "button", text: x.title, onclick: () => selectEvent(x.id, { fly: true }) }))));
+  }
+  // other events within 25 km of this one
+  const near = state.events.filter((x) => x.id !== e.id && d3.geoDistance([x.lng, x.lat], [e.lng, e.lat]) * 6371 <= 25).sort(dateOrder);
+  if (near.length) {
+    kids.push(h("section", { class: "same-year", "aria-label": "Other events at this place" },
+      h("h3", { text: `Also here${e.place ? ": " + e.place.split(",")[0] : ""}` }),
+      near.map((x) => h("button", { type: "button", onclick: () => selectEvent(x.id, { fly: true }) },
+        h("span", { class: "sy-year", text: fmtYear(x.year) }), x.title))));
   }
   if (d == null) kids.push(h("div", { class: "d-actions" }, h("button", { class: "btn", type: "button", text: `Move timeline to ${fmtYear(e.year)}`, onclick: () => setYear(e.year) })));
   if (writable) {
@@ -1771,6 +1845,7 @@ $("#formView").addEventListener("submit", async (ev) => {
 });
 
 function onScrubStart() {
+  globe.closeFan();
   if (state.view === "detail") { state.view = "list"; state.tab = "now"; state.selectedId = null; confirmDelete = false; renderView(); }
 }
 
@@ -1805,7 +1880,7 @@ document.addEventListener("visibilitychange", () => { if (!document.hidden) rese
 resetIdle();
 
 // read-only hooks for the end-to-end tests
-window.__chronoglobe = Object.freeze({ idleSpinning: () => globe.isSpinning(), view: () => globe.getView(), labelsShown: () => globe.labelsShown(), spin: () => globe.spinSpeed(), fading: () => afterglow.size });
+window.__chronoglobe = Object.freeze({ fan: () => globe.fanPoints(), project: (lng, lat) => globe.project(lng, lat), idleSpinning: () => globe.isSpinning(), view: () => globe.getView(), labelsShown: () => globe.labelsShown(), spin: () => globe.spinSpeed(), fading: () => afterglow.size });
 
 // ---------- boot
 renderChrome(); renderStats(); renderView(); update();
