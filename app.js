@@ -349,6 +349,7 @@ const globe = (() => {
   }
 
   function drawPoints(now) {
+    fanK = fanProgress(now);
     hits = [];
     const far = [];
     const c = center();
@@ -359,7 +360,10 @@ const globe = (() => {
       const d = matchMap.get(e.id);
       if (ang > HALF_PI - 0.015) { if (d != null) far.push(e); continue; }
       const [x, y] = proj([e.lng, e.lat]);
-      const edge = 0.35 + 0.65 * Math.cos(ang);
+      // while the fan is open its events show in the ring, not at the centre
+      const show = fan && fan.ids.includes(e.id) ? 1 - fanK : 1;
+      if (show <= 0.01) continue;
+      const edge = (0.35 + 0.65 * Math.cos(ang)) * show;
       if (d != null) { lit.push({ e, x, y, edge, s: strength(d), k: 1 }); continue; }
       ctx.globalAlpha = edge;
       ctx.beginPath(); ctx.arc(x, y, 3.6, 0, TAU); ctx.fillStyle = C.halo; ctx.fill();
@@ -422,13 +426,33 @@ const globe = (() => {
     if (key !== farKey) { farKey = key; farMatches = far; renderFar(far); }
   }
   // ---- fan: events stacked on one spot spread into a ring so each can be picked
-  let fan = null;   // { lng, lat, ids, t0 }
-  let fanHits = [];
+  let fan = null;   // { lng, lat, ids, t0, closing, from }
+  let fanHits = [], fanK = 0;
+  const FAN_OPEN_MS = 240, FAN_CLOSE_MS = 200;
   function openFan(anchor, ids) {
-    fan = { lng: anchor.lng, lat: anchor.lat, ids, t0: performance.now() };
+    fan = { lng: anchor.lng, lat: anchor.lat, ids, t0: performance.now(), closing: false };
     request();
   }
-  function closeFan() { if (fan) { fan = null; fanHits = []; request(); } }
+  // fold the ring back into the centre from wherever it is
+  function closeFan() {
+    if (!fan || fan.closing) return;
+    fan.from = fanProgress(performance.now());
+    fan.closing = true; fan.t0 = performance.now();
+    fanHits = [];
+    if (reduceMotion.matches) fan = null;
+    request();
+  }
+  // 0 = folded at the centre, 1 = fully open (eased)
+  function fanProgress(now) {
+    if (!fan) return 0;
+    if (reduceMotion.matches) return fan.closing ? 0 : 1;
+    if (fan.closing) {
+      const k = fan.from * (1 - ((now || 0) - fan.t0) / FAN_CLOSE_MS);
+      return Math.max(0, k);
+    }
+    const t = Math.min(1, ((now || 0) - fan.t0) / FAN_OPEN_MS);
+    return 1 - Math.pow(1 - t, 3);
+  }
   function drawFan(now, c) {
     fanHits = [];
     if (!fan) return;
@@ -436,9 +460,9 @@ const globe = (() => {
     if (fan.ids.length < 2) { fan = null; return; }
     if (d3.geoDistance([fan.lng, fan.lat], c) > HALF_PI - 0.02) return;
     const [cx, cy] = proj([fan.lng, fan.lat]);
-    const t = reduceMotion.matches ? 1 : Math.min(1, ((now || 0) - fan.t0) / 240);
-    const k = 1 - Math.pow(1 - t, 3);
-    if (t < 1) request();
+    const k = fanK;
+    if (fan.closing && k <= 0) { fan = null; return; }
+    if (fan.closing || k < 1) request();
     const n = fan.ids.length, rad = Math.max(30, n * 8);
     ctx.font = `600 11.5px ${FONT_BODY}`; ctx.textBaseline = "middle"; ctx.lineJoin = "round";
     fan.ids.forEach((id, i) => {
@@ -451,7 +475,7 @@ const globe = (() => {
       ctx.beginPath(); ctx.arc(x, y, 7.5, 0, TAU); ctx.fillStyle = C.halo; ctx.fill();
       ctx.beginPath(); ctx.arc(x, y, 5.5, 0, TAU); ctx.fillStyle = lit ? C.sand : C.dot; ctx.fill();
       if (sel) { ctx.beginPath(); ctx.arc(x, y, 9.5, 0, TAU); ctx.strokeStyle = C.rose; ctx.lineWidth = 3; ctx.stroke(); }
-      fanHits.push({ e, x, y, r: 8, fan: true });
+      if (!fan.closing) fanHits.push({ e, x, y, r: 8, fan: true });
       if (k > 0.6) {
         const right = Math.cos(a) >= -0.01;
         const text = (e.title.length > 28 ? e.title.slice(0, 27).trimEnd() + "…" : e.title) + "  " + fmtYear(e.year);
