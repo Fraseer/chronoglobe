@@ -979,8 +979,15 @@ eraBtn.addEventListener("click", () => {
 });
 document.querySelectorAll("[data-step]").forEach((b) => b.addEventListener("click", () => { stopPlay(); setYear(state.year + Number(b.dataset.step)); }));
 function eventYears() { return [...new Set(state.events.map((e) => e.year))].sort((a, b) => a - b); }
-$("#prevEv").addEventListener("click", () => { stopPlay(); const ys = eventYears().filter((y) => y < state.year); if (ys.length) setYear(ys[ys.length - 1]); });
-$("#nextEv").addEventListener("click", () => { stopPlay(); const ys = eventYears().filter((y) => y > state.year); if (ys.length) setYear(ys[0]); });
+// skipping to an event also turns the globe to it (the earliest one if several share the year), unless locked
+function skipTo(y) {
+  stopPlay();
+  setYear(y, { settle: false });
+  const e = state.events.filter((x) => x.year === y).sort(dateOrder)[0];
+  if (e && !state.locked) globe.flyTo(e.lng, e.lat);
+}
+$("#prevEv").addEventListener("click", () => { const ys = eventYears().filter((y) => y < state.year); if (ys.length) skipTo(ys[ys.length - 1]); });
+$("#nextEv").addEventListener("click", () => { const ys = eventYears().filter((y) => y > state.year); if (ys.length) skipTo(ys[0]); });
 
 const tolSel = $("#tolSel");
 tolSel.value = String(state.tol);

@@ -299,6 +299,17 @@ function check(name, ok, info) {
   await st2.screenshot({ path: path.join(os.tmpdir(), "fan-closed.png") });
   await st2.context().close();
 
+  // ---------------------------------------------------------------- skip buttons turn the globe to the event
+  const sk = await newPage({ viewport: { width: 1300, height: 860 } });
+  await sk.fill("#yearInput", "1460"); await sk.press("#yearInput", "Enter"); await sk.waitForTimeout(1500);
+  await sk.click("#prevEv"); await sk.waitForTimeout(1600);
+  st = await sk.evaluate(() => ({ year: document.querySelector("#yearInput").value, rot: window.__chronoglobe.view().rot }));
+  check("skip back lands on the event's year and centres the globe on it", st.year === "1455" && Math.abs(st.rot[0] + 8.247) < 1 && Math.abs(st.rot[1] + 49.993) < 1, st);
+  await sk.click("#nextEv"); await sk.waitForTimeout(1600);
+  st = await sk.evaluate(() => ({ year: document.querySelector("#yearInput").value, rot: window.__chronoglobe.view().rot }));
+  check("skip forward centres the globe on the next event", st.year === "1969" && Math.abs(st.rot[0] - 80.604) < 1 && Math.abs(st.rot[1] + 28.608) < 1, st);
+  await sk.context().close();
+
   // ---------------------------------------------------------------- idle spin after a minute
   const idle = await newPage({ viewport: { width: 1200, height: 800 } }, () => {
     const real = window.setTimeout;
