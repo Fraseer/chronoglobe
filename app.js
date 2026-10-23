@@ -308,6 +308,10 @@ const globe = (() => {
       inertia.vx *= decay; inertia.vy *= decay;
       if (Math.hypot(inertia.vx, inertia.vy) < 0.002) inertia = null;
       keep = true;
+    } else if (state.playing && !state.locked && !reduceMotion.matches) {
+      // Play turns the globe steadily (15 deg/s, the way the Earth spins) so events come into view as they light up
+      rot[0] += 0.015 * dt;
+      keep = true;
     } else if (spinning && !reduceMotion.matches) {
       rot[0] += 0.004 * dt;
       keep = true;
@@ -1022,6 +1026,7 @@ function startPlay() {
   if (f >= 0.999) { f = 0; setYear(timeline.domain[0], { settle: false }); }
   play = { f, last: 0, raf: 0 };
   state.playing = true;
+  globe.request();
   playIcon.setAttribute("d", "M4 3h3v10H4zM9 3h3v10H9z");
   playBtn.setAttribute("aria-label", "Pause");
   const step = (now) => {
@@ -1032,7 +1037,7 @@ function startPlay() {
       if (y !== state.year) {
         setYear(y, { settle: false, fromPlay: true });
         const top = matchList[0] ? matchList[0].e.id : null;
-        if (top && top !== lastTopMatch) { lastTopMatch = top; settleYear(); }
+        if (top && top !== lastTopMatch) lastTopMatch = top;
       }
       if (play.f >= 1) { stopPlay(); return; }
     }

@@ -310,6 +310,17 @@ function check(name, ok, info) {
   check("skip forward centres the globe on the next event", st.year === "1969" && Math.abs(st.rot[0] - 80.604) < 1 && Math.abs(st.rot[1] + 28.608) < 1, st);
   await sk.context().close();
 
+  // ---------------------------------------------------------------- Play spins the globe
+  const pl = await newPage({ viewport: { width: 1300, height: 860 }, reducedMotion: "no-preference" });
+  const r0 = await pl.evaluate(() => window.__chronoglobe.view().rot[0]);
+  await pl.click("#playBtn"); await pl.waitForTimeout(2000);
+  const r1 = await pl.evaluate(() => window.__chronoglobe.view().rot[0]);
+  await pl.click("#playBtn"); await pl.waitForTimeout(300);
+  const r2 = await pl.evaluate(() => window.__chronoglobe.view().rot[0]); await pl.waitForTimeout(1000);
+  const r3 = await pl.evaluate(() => window.__chronoglobe.view().rot[0]);
+  check("Play spins the globe at about 15 deg/s and pausing stops it", r1 - r0 > 20 && r1 - r0 < 40 && Math.abs(r3 - r2) < 0.5, { during: r1 - r0, afterPause: r3 - r2 });
+  await pl.context().close();
+
   // ---------------------------------------------------------------- idle spin after a minute
   const idle = await newPage({ viewport: { width: 1200, height: 800 } }, () => {
     const real = window.setTimeout;
