@@ -1558,7 +1558,11 @@ function eventRow(e, opts) {
   const sub = [fmtDayMonth(e), e.place, e.category ? CAT_LABEL[e.category] : ""].filter(Boolean).join(" · ");
   return h("button", {
     class: "ev" + (isMatch ? " is-match" : ""), type: "button", "aria-current": String(e.id === state.selectedId), "data-year": String(e.year),
-    onclick: () => selectEvent(e.id, { fly: true }),
+    // in Full timeline a click only turns the globe to the event; a double-click (or Enter) opens it
+    title: state.tab === "all" ? "Click to show on the globe, double-click to open" : null,
+    onclick: () => { if (state.tab === "all") globe.flyTo(e.lng, e.lat); else selectEvent(e.id, { fly: true }); },
+    ondblclick: () => { if (state.tab === "all") selectEvent(e.id, { fly: true }); },
+    onkeydown: (ev) => { if (ev.key === "Enter" && state.tab === "all") { ev.preventDefault(); selectEvent(e.id, { fly: true }); } },
   }, mk, h("span", { class: "y", text: fmtYear(e.year) }), h("span", { class: "b" }, h("span", { class: "t", text: e.title }), sub ? h("span", { class: "p", text: sub }) : null), tail);
 }
 function renderList() {

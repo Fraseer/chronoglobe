@@ -198,6 +198,7 @@ button, input, select, textarea { font: inherit; color: inherit; }
   display: grid; grid-template-columns: 10px 5.2rem minmax(0, 1fr) auto; gap: 2px 10px; align-items: baseline;
   width: 100%; text-align: left; background: none; border: 1px solid transparent; border-radius: 6px; padding: 8px 8px; cursor: pointer;
 }
+.ev { touch-action: manipulation; }
 .ev:hover { background: var(--raised); border-color: var(--line); }
 .ev[aria-current="true"] { background: var(--raised); border-color: var(--line-2); }
 .ev .mk { width: 7px; height: 7px; border-radius: 50%; background: var(--line-2); align-self: center; }

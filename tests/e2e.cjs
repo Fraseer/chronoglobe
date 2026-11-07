@@ -137,7 +137,7 @@ function check(name, ok, info) {
   // a second tab sees changes from the first
   const p2 = await p.context().newPage();
   await p2.goto(BASE); await p2.waitForTimeout(1200);
-  await p2.click("#tabAll"); await p2.click('#listItems .ev[data-year="-752"]'); await p2.waitForTimeout(900);
+  await p2.click("#tabAll"); await p2.dblclick('#listItems .ev[data-year="-752"]'); await p2.waitForTimeout(900);
   await p2.click("#detailView .btn.danger"); await p2.click("#detailView .btn.danger-solid"); await p2.waitForTimeout(300);
   await p.waitForTimeout(300);
   check("deleting in one tab updates the other", (await p.evaluate(() => document.querySelector("#countAll").textContent)) === "6");
@@ -155,7 +155,7 @@ function check(name, ok, info) {
   st = await p.evaluate(() => ({ badges: document.body.innerText.includes("EXAMPLE") || document.body.innerText.includes("Remove examples") }));
   check("starter events show no example badge or banner", !st.badges, st);
   for (let i = 0; i < 6; i++) {
-    await p.click("#tabAll"); await p.click("#listItems .ev >> nth=0"); await p.waitForTimeout(300);
+    await p.click("#tabAll"); await p.dblclick("#listItems .ev >> nth=0"); await p.waitForTimeout(300);
     await p.click("#detailView .btn.danger"); await p.click("#detailView .btn.danger-solid"); await p.waitForTimeout(200);
   }
   await p.reload(); await p.waitForTimeout(1200);
@@ -171,7 +171,7 @@ function check(name, ok, info) {
   check("importing the same backup again changes nothing", st.n === "6" && /already here/.test(st.toast), st);
 
   // edit an event, then import the older backup: the edit must survive
-  await p.click("#tabAll"); await p.click('#listItems .ev[data-year="-2559"]'); await p.waitForTimeout(900);
+  await p.click("#tabAll"); await p.dblclick('#listItems .ev[data-year="-2559"]'); await p.waitForTimeout(900);
   await p.click("#detailView .btn >> text=Edit");
   await p.fill("#fTitle", "Great Pyramid of Giza (my notes)");
   await p.selectOption("#fCat", "culture"); if (!(await p.inputValue("#fDesc"))) await p.fill("#fDesc", "Test description.");
@@ -321,6 +321,20 @@ function check(name, ok, info) {
   check("Play spins the globe at about 15 deg/s and pausing stops it", r1 - r0 > 20 && r1 - r0 < 40 && Math.abs(r3 - r2) < 0.5, { during: r1 - r0, afterPause: r3 - r2 });
   await pl.context().close();
 
+  // ---------------------------------------------------------------- Full timeline: click turns the globe, double-click opens
+  const ft = await newPage({ viewport: { width: 1300, height: 860 } });
+  await ft.click("#tabAll");
+  await ft.click('#listItems .ev[data-year="1969"]'); await ft.waitForTimeout(1600);
+  st = await ft.evaluate(() => ({ detail: !document.querySelector("#detailView").hidden, rot: window.__chronoglobe.view().rot, tab: document.querySelector("#tabAll").getAttribute("aria-selected") }));
+  check("a click in Full timeline turns the globe to the event without opening it", !st.detail && st.tab === "true" && Math.abs(st.rot[0] - 80.604) < 1 && Math.abs(st.rot[1] + 28.608) < 1, st);
+  await ft.dblclick('#listItems .ev[data-year="1969"]'); await ft.waitForTimeout(900);
+  st = await ft.evaluate(() => ({ title: document.querySelector(".d-title")?.textContent, year: document.querySelector("#yearInput").value }));
+  check("a double-click in Full timeline opens the event", st.title === "Apollo 11 launches to the Moon" && st.year === "1969", st);
+  await ft.click("#detailView .btn.ghost"); await ft.click("#tabAll");
+  await ft.focus('#listItems .ev[data-year="1453"]'); await ft.keyboard.press("Enter"); await ft.waitForTimeout(900);
+  check("Enter on a Full timeline row opens the event", (await ft.evaluate(() => document.querySelector(".d-title")?.textContent)) === "Fall of Constantinople");
+  await ft.context().close();
+
   // ---------------------------------------------------------------- idle spin after a minute
   const idle = await newPage({ viewport: { width: 1200, height: 800 } }, () => {
     const real = window.setTimeout;
@@ -346,7 +360,7 @@ function check(name, ok, info) {
       ]));
     }
   });
-  await sy.click("#tabAll"); await sy.click('#listItems .ev >> text=Gutenberg Bible printed'); await sy.waitForTimeout(900);
+  await sy.click("#tabAll"); await sy.dblclick('#listItems .ev >> text=Gutenberg Bible printed'); await sy.waitForTimeout(900);
   st = await sy.evaluate(() => ({ head: document.querySelector(".same-year h3")?.textContent, items: [...document.querySelectorAll(".same-year button")].map((b) => b.textContent) }));
   check("details list the other events from the same year only", st.head === "Also in 1455" && st.items.join() === "Wars of the Roses begin", st);
   await sy.click(".same-year button"); await sy.waitForTimeout(900);
@@ -427,7 +441,7 @@ function check(name, ok, info) {
   await desk.waitForTimeout(800);
   check("the first device picks up the second device's event without reloading", (await count(desk)) === "8");
 
-  await phone.click("#tabAll"); await phone.click('#listItems .ev >> text=Added on desktop'); await phone.waitForTimeout(900);
+  await phone.click("#tabAll"); await phone.dblclick('#listItems .ev >> text=Added on desktop'); await phone.waitForTimeout(900);
   await phone.click("#detailView .btn.danger"); await phone.click("#detailView .btn.danger-solid"); await phone.waitForTimeout(800);
   st = { desk: await count(desk), phone: await count(phone), cloud: inCloud().length };
   check("deleting on one device removes it everywhere", st.desk === "7" && st.phone === "7" && st.cloud === 7, st);
@@ -482,7 +496,7 @@ function check(name, ok, info) {
     const states = [];
     states.push(["this-year", await overflow()]);
     await m.tap("#tabAll"); states.push(["full-timeline", await overflow()]);
-    const row = m.locator("#listItems .ev").first(); await row.scrollIntoViewIfNeeded(); await row.tap(); await m.waitForTimeout(1000);
+    const row = m.locator("#listItems .ev").first(); await row.scrollIntoViewIfNeeded(); await row.dblclick(); await m.waitForTimeout(1000);
     states.push(["detail-sheet", await overflow()]);
     await m.tap("#detailView .btn.ghost"); await m.tap("#addBtn"); await m.waitForTimeout(300);
     states.push(["add-form", await overflow()]);
