@@ -13,7 +13,7 @@ Built for keeping track of the events from daily history guessing games like [An
   - **Lock** keeps the globe still while you move through time, so you can watch one place.
   - **Window** sets how close an event's year must be to count as a match (exact year up to ±100 years).
   - **Weighted / Even** changes the scale: weighted gives recent centuries more room.
-- **Sidebar**: *This year* lists the events in the current window; *Full timeline* lists everything in date order, grouped by century; clicking an event there turns the globe to it, and double-clicking (or Enter) opens it. An event's details also list the other events from the same year.
+- **Sidebar**: *This year* lists the events in the current window; *Full timeline* lists everything in date order, grouped by century; clicking an event there lights it up, moves the timeline to its year and turns the globe to it while staying on the list, and double-clicking (or Enter) opens its details. An event's details also list the other events from the same year.
 - **Add event**: title, year (BC/AD), optional day and month, place, optional category and description. Pick the place by typing a city or country and choosing from the suggestions (about 240 historic places and the 177 countries on the map are built in), or by clicking the globe.
 
 ## Syncing between devices

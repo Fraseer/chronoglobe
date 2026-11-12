@@ -325,8 +325,8 @@ function check(name, ok, info) {
   const ft = await newPage({ viewport: { width: 1300, height: 860 } });
   await ft.click("#tabAll");
   await ft.click('#listItems .ev[data-year="1969"]'); await ft.waitForTimeout(1600);
-  st = await ft.evaluate(() => ({ detail: !document.querySelector("#detailView").hidden, rot: window.__chronoglobe.view().rot, tab: document.querySelector("#tabAll").getAttribute("aria-selected") }));
-  check("a click in Full timeline turns the globe to the event without opening it", !st.detail && st.tab === "true" && Math.abs(st.rot[0] - 80.604) < 1 && Math.abs(st.rot[1] + 28.608) < 1, st);
+  st = await ft.evaluate(() => ({ detail: !document.querySelector("#detailView").hidden, rot: window.__chronoglobe.view().rot, tab: document.querySelector("#tabAll").getAttribute("aria-selected"), year: document.querySelector("#yearInput").value, lit: document.querySelector('#listItems .ev[data-year="1969"]').classList.contains("is-match"), current: document.querySelector('#listItems .ev[data-year="1969"]').getAttribute("aria-current") }));
+  check("a click in Full timeline lights the event, moves the timeline and turns the globe, staying on the list", !st.detail && st.tab === "true" && st.year === "1969" && st.lit && st.current === "true" && Math.abs(st.rot[0] - 80.604) < 1 && Math.abs(st.rot[1] + 28.608) < 1, st);
   await ft.dblclick('#listItems .ev[data-year="1969"]'); await ft.waitForTimeout(900);
   st = await ft.evaluate(() => ({ title: document.querySelector(".d-title")?.textContent, year: document.querySelector("#yearInput").value }));
   check("a double-click in Full timeline opens the event", st.title === "Apollo 11 launches to the Moon" && st.year === "1969", st);

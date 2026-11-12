@@ -1557,10 +1557,10 @@ function eventRow(e, opts) {
   if (opts.showOffset && isMatch) tail = h("span", { class: "off" + (d === 0 ? " exact" : ""), text: offText(e, d) });
   const sub = [fmtDayMonth(e), e.place, e.category ? CAT_LABEL[e.category] : ""].filter(Boolean).join(" · ");
   return h("button", {
-    class: "ev" + (isMatch ? " is-match" : ""), type: "button", "aria-current": String(e.id === state.selectedId), "data-year": String(e.year),
+    class: "ev" + (isMatch ? " is-match" : ""), type: "button", "aria-current": String(e.id === state.selectedId), "data-year": String(e.year), "data-id": e.id,
     // in Full timeline a click only turns the globe to the event; a double-click (or Enter) opens it
     title: state.tab === "all" ? "Click to show on the globe, double-click to open" : null,
-    onclick: () => { if (state.tab === "all") globe.flyTo(e.lng, e.lat); else selectEvent(e.id, { fly: true }); },
+    onclick: () => { if (state.tab === "all") peekEvent(e); else selectEvent(e.id, { fly: true }); },
     ondblclick: () => { if (state.tab === "all") selectEvent(e.id, { fly: true }); },
     onkeydown: (ev) => { if (ev.key === "Enter" && state.tab === "all") { ev.preventDefault(); selectEvent(e.id, { fly: true }); } },
   }, mk, h("span", { class: "y", text: fmtYear(e.year) }), h("span", { class: "b" }, h("span", { class: "t", text: e.title }), sub ? h("span", { class: "p", text: sub }) : null), tail);
@@ -1650,6 +1650,19 @@ function dataTools() {
 }
 
 // ---------- selection & detail
+// Full timeline single click: light the event up, move the timeline to it and turn the globe,
+// but stay on the list rather than opening its details
+function peekEvent(e) {
+  stopPlay();
+  state.selectedId = e.id;
+  setYear(e.year, { settle: false, force: true });
+  globe.flyTo(e.lng, e.lat);
+  // the list re-renders with the new year; keep keyboard focus on the same row
+  requestAnimationFrame(() => {
+    const row = document.querySelector(`#listItems .ev[data-id="${CSS.escape(e.id)}"]`);
+    if (row) row.focus({ preventScroll: true });
+  });
+}
 function selectEvent(id, opts = {}) {
   const e = byId(id);
   if (!e) return;
