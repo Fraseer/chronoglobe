@@ -327,6 +327,12 @@ function check(name, ok, info) {
   await ft.click('#listItems .ev[data-year="1969"]'); await ft.waitForTimeout(1600);
   st = await ft.evaluate(() => ({ detail: !document.querySelector("#detailView").hidden, rot: window.__chronoglobe.view().rot, tab: document.querySelector("#tabAll").getAttribute("aria-selected"), year: document.querySelector("#yearInput").value, lit: document.querySelector('#listItems .ev[data-year="1969"]').classList.contains("is-match"), current: document.querySelector('#listItems .ev[data-year="1969"]').getAttribute("aria-current") }));
   check("a click in Full timeline lights the event, moves the timeline and turns the globe, staying on the list", !st.detail && st.tab === "true" && st.year === "1969" && st.lit && st.current === "true" && Math.abs(st.rot[0] - 80.604) < 1 && Math.abs(st.rot[1] + 28.608) < 1, st);
+  const order = () => ft.evaluate(() => [...document.querySelectorAll("#listItems .spine > *")].map((el) => el.classList.contains("now-mark") ? "NOW " + el.textContent : el.classList.contains("grp") ? "# " + el.textContent : el.dataset.year));
+  st = await order();
+  check("Full timeline draws a spine with century headings and the now marker at the slider's year", st.join("|") === "# 3rd millennium BC|-2559|# 15th century|1453|1455|# 20th century|NOW 1969|1969|1977|1977", st);
+  await ft.fill("#yearInput", "1800"); await ft.press("#yearInput", "Enter"); await ft.waitForTimeout(300);
+  st = await order();
+  check("the now marker moves with the year, between centuries when no event is near", st.join("|") === "# 3rd millennium BC|-2559|# 15th century|1453|1455|NOW 1800|# 20th century|1969|1977|1977", st);
   await ft.dblclick('#listItems .ev[data-year="1969"]'); await ft.waitForTimeout(900);
   st = await ft.evaluate(() => ({ title: document.querySelector(".d-title")?.textContent, year: document.querySelector("#yearInput").value }));
   check("a double-click in Full timeline opens the event", st.title === "Apollo 11 launches to the Moon" && st.year === "1969", st);

@@ -1522,11 +1522,10 @@ function setTab(tab) {
 function scrollTimelineToYear() {
   const body = $("#panelBody");
   if (narrow.matches) return;
-  const rows = [...document.querySelectorAll("#listItems .ev[data-year]")];
-  if (!rows.length) { body.scrollTop = 0; return; }
-  const target = rows.find((r) => Number(r.dataset.year) >= state.year) || rows[rows.length - 1];
-  const prev = target.previousElementSibling;
-  const anchor = prev && prev.classList.contains("grp") ? prev : target;
+  const mark = document.querySelector("#listItems .now-mark");
+  if (!mark) { body.scrollTop = 0; return; }
+  const prev = mark.previousElementSibling;
+  const anchor = prev && prev.classList.contains("grp") ? prev : mark;
   body.scrollTop += anchor.getBoundingClientRect().top - body.getBoundingClientRect().top - 8;
 }
 function closeDetail(opts = {}) {
@@ -1590,16 +1589,33 @@ function renderList() {
       (!q || e.title.toLowerCase().includes(q) || e.place.toLowerCase().includes(q) || e.description.toLowerCase().includes(q) || fmtDate(e).toLowerCase().includes(q)))
       .sort((a, b) => dateOrder(a, b) || a.title.localeCompare(b.title));
     if (!list.length) out.push(h("p", { class: "list-head", text: "No events match that search." }));
-    let key = null;
-    for (const e of list) {
-      const k = periodKey(e.year);
-      if (k !== key) { key = k; out.push(h("h3", { class: "grp", text: periodLabel(e.year) })); }
-      out.push(eventRow(e, { showOffset: false }));
+    else {
+      // events hang off a vertical spine, grouped by century, with a marker where the slider's year falls
+      const spine = h("div", { class: "spine" });
+      const now = () => h("div", { class: "now-mark", "aria-hidden": "true" }, h("span", { class: "now-line" }), h("span", { class: "now-year", text: fmtYear(state.year) }), h("span", { class: "now-line" }));
+      let key = null, placed = false;
+      for (const e of list) {
+        const k = periodKey(e.year);
+        const due = !placed && e.year >= state.year;
+        if (due && k !== periodKey(state.year)) { spine.append(now()); placed = true; }
+        if (k !== key) { key = k; spine.append(h("h3", { class: "grp", text: periodLabel(e.year) })); }
+        if (!placed && due) { spine.append(now()); placed = true; }
+        spine.append(eventRow(e, { showOffset: false }));
+      }
+      if (!placed) spine.append(now());
+      out.push(spine);
     }
     out.push(dataTools());
   }
   box.replaceChildren(...out);
+  // as the year moves, keep the marker in view (desktop, where the sidebar scrolls on its own)
+  if (state.tab === "all" && listYear !== state.year && !narrow.matches) {
+    const m = box.querySelector(".now-mark");
+    if (m && listYear !== null) m.scrollIntoView({ block: "nearest" });
+  }
+  listYear = state.tab === "all" ? state.year : null;
 }
+let listYear = null;
 function emptyState() {
   if (state.store === "cloud") {
     const out = cloud.failed
