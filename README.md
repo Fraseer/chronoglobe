@@ -81,7 +81,8 @@ The repository root is the site. On GitHub Pages: **Settings → Pages → Build
 | `index.html` | Page markup |
 | `styles.css` | Styles, with light and dark themes |
 | `app.js` | The app: globe, timeline, sidebar, storage |
-| `world-110m.js` | World outline data |
+| `world-110m.js` | World outline data for the whole-globe view (Natural Earth 1:110m) |
+| `world-50m.json` | More detailed outlines (Natural Earth 1:50m), loaded once you zoom in |
 | `LICENSE` | GNU GPL v3.0 |
 | `firebase-config.js` | Firebase project for syncing (null = browser only) |
 | `firestore.rules` | Database rules: each account reads and writes only its own events, with field and size limits |

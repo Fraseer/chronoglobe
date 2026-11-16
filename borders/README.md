@@ -11,3 +11,5 @@ mapshaper -i world_<year>.geojson -filter-fields NAME,SUBJECTO,BORDERPRECISION \
   -dissolve2 NAME copy-fields=SUBJECTO,BORDERPRECISION -filter-islands min-area=300km2 remove-empty \
   -simplify 3% keep-shapes -rename-layers borders -o <year>.json format=topojson quantization=10000
 ```
+
+`detail/` holds the same snapshots in more detail, loaded only when the globe is zoomed in: islands under 50 km² dropped and simplified to 20% of their points (`-filter-islands min-area=50km2 ... -simplify 20% ... quantization=50000`).

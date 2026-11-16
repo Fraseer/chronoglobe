@@ -274,11 +274,27 @@ const history = (() => {
           const fc = topojson.feature(t, t.objects.borders);
           // a few shapes come wound inside-out, which d3 reads as "everything but this"
           for (const f of fc.features) if (d3.geoArea(f) > TAU) rewind(f);
-          return { year: s.year, features: fc.features, mesh: topojson.mesh(t, t.objects.borders) };
+          return { year: s.year, file: s.file, features: fc.features, mesh: topojson.mesh(t, t.objects.borders) };
         })
         .catch(() => { cache.delete(s.file); return null; }));
     }
     return cache.get(s.file);
+  }
+  // the same snapshot in more detail (borders/detail/, simplified less), for when the globe is zoomed in
+  const details = new Map();
+  function detailFor(snap) {
+    if (!details.has(snap.file)) {
+      details.set(snap.file, null);
+      fetch(`borders/detail/${snap.file}.json`).then((r) => { if (!r.ok) throw new Error(r.status); return r.json(); })
+        .then((t) => {
+          const fc = topojson.feature(t, t.objects.borders);
+          for (const f of fc.features) if (d3.geoArea(f) > TAU) rewind(f);
+          details.set(snap.file, { mesh: topojson.mesh(t, t.objects.borders), byName: new Map(fc.features.map((f) => [f.properties.NAME, f])) });
+          globe.request();
+        })
+        .catch(() => details.delete(snap.file));
+    }
+    return details.get(snap.file);
   }
   // the snapshot nearest the given year
   async function forYear(y) {
@@ -308,7 +324,7 @@ const history = (() => {
     polities.set(key, f || null);
     return f || null;
   }
-  return { follow, forYear, polityAt, get current() { return current; } };
+  return { follow, forYear, polityAt, detailFor, get current() { return current; } };
 })();
 
 const globe = (() => {
@@ -321,6 +337,16 @@ const globe = (() => {
   const SPHERE = { type: "Sphere" };
   const GRAT = d3.geoGraticule().step([15, 15])();
   const LAND = topojson.feature(WORLD, WORLD.objects.land);
+  // zoomed in, swap to the 1:50m outlines (loaded once, on first zoom); the whole-world view keeps 1:110m
+  const DETAIL_ZOOM = 1.5;
+  let detail = null, detailLoading = false;
+  function loadDetail() {
+    if (detail || detailLoading) return;
+    detailLoading = true;
+    fetch("world-50m.json").then((r) => { if (!r.ok) throw new Error(r.status); return r.json(); })
+      .then((t) => { detail = { land: topojson.feature(t, t.objects.land), borders: topojson.mesh(t, t.objects.countries, (a, b) => a !== b) }; request(); })
+      .catch(() => { detailLoading = false; });
+  }
   const BORDERS = topojson.mesh(WORLD, WORLD.objects.countries, (a, b) => a !== b);
   let raf = 0, last = 0, anim = null, inertia = null, spinning = true;
   // spin driven by dragging the timeline: spinTarget is refreshed by each drag move and lapses when moves stop
@@ -405,22 +431,27 @@ const globe = (() => {
     ctx.fillStyle = og; ctx.beginPath(); path(SPHERE); ctx.fill();
 
     ctx.beginPath(); path(GRAT); ctx.strokeStyle = C.grat; ctx.lineWidth = 1; ctx.stroke();
-    ctx.beginPath(); path(LAND); ctx.fillStyle = C.land; ctx.fill();
+    if (zoom >= DETAIL_ZOOM) loadDetail();
+    const fine = zoom >= DETAIL_ZOOM && detail;
+    const land = fine ? detail.land : LAND;
+    ctx.beginPath(); path(land); ctx.fillStyle = C.land; ctx.fill();
     ctx.strokeStyle = C.landEdge; ctx.lineWidth = 0.8; ctx.stroke();
     const hist = history.current;
     if (hist) {
       // borders of the time, kept to today's land; the polity each lit event fell in is shaded
       ctx.save();
-      ctx.beginPath(); path(LAND); ctx.clip();
+      ctx.beginPath(); path(land); ctx.clip();
+      const hd = fine ? history.detailFor(hist) : null;
       const shaded = new Set();
       for (const { e } of matchList) {
-        const f = history.polityAt(hist, e.lng, e.lat);
+        let f = history.polityAt(hist, e.lng, e.lat);
+        if (f && hd) f = hd.byName.get(f.properties.NAME) || f;
         if (f && !shaded.has(f)) { shaded.add(f); ctx.beginPath(); path(f); ctx.fillStyle = C.sandWash; ctx.fill(); }
       }
-      ctx.beginPath(); path(hist.mesh); ctx.strokeStyle = C.landEdge; ctx.lineWidth = 0.6; ctx.globalAlpha = 0.85; ctx.stroke(); ctx.globalAlpha = 1;
+      ctx.beginPath(); path(hd ? hd.mesh : hist.mesh); ctx.strokeStyle = C.landEdge; ctx.lineWidth = 0.6; ctx.globalAlpha = 0.85; ctx.stroke(); ctx.globalAlpha = 1;
       ctx.restore();
     } else {
-      ctx.beginPath(); path(BORDERS); ctx.lineWidth = 0.5; ctx.globalAlpha = 0.8; ctx.stroke(); ctx.globalAlpha = 1;
+      ctx.beginPath(); path(fine ? detail.borders : BORDERS); ctx.lineWidth = 0.5; ctx.globalAlpha = 0.8; ctx.stroke(); ctx.globalAlpha = 1;
     }
 
     const sg = ctx.createRadialGradient(cx - r * 0.38, cy - r * 0.42, r * 0.1, cx, cy, r);
