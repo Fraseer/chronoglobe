@@ -15,7 +15,6 @@ Built for keeping track of the events from daily history guessing games like [An
   - **Window** sets how close an event's year must be to count as a match (exact year up to ±100 years).
   - **Weighted / Even** changes the scale: weighted gives recent centuries more room.
 - **Sidebar**: *This year* lists the events in the current window; *Full timeline* shows everything in date order along a vertical spine, grouped by century, with a marker for the slider's year that moves as you scrub; clicking an event there lights it up, moves the timeline to its year and turns the globe to it while staying on the list, and double-clicking (or Enter) opens its details. An event's details also list the other events from the same year.
-- **Linked events**: link related events in the add/edit form (a link set on either event counts for both). When a linked event is selected or lit, a curved arc joins it to its links on the globe, with dashes running from the earlier event to the later one, and its details list the links with the years between them.
 - **Add event**: title, year (BC/AD), optional day and month, place, optional category and description. Pick the place by typing a city or country and choosing from the suggestions (about 240 historic places and the 177 countries on the map are built in), or by clicking the globe.
 
 ## Syncing between devices

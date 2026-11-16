@@ -12,7 +12,7 @@ service cloud.firestore {
 
     function validEvent(e, eventId) {
       return e.keys().hasOnly(['id', 'title', 'year', 'month', 'day', 'place', 'lat', 'lng',
-                               'category', 'description', 'example', 'createdAt', 'updatedAt', 'links'])
+                               'category', 'description', 'example', 'createdAt', 'updatedAt'])
         && e.keys().hasAll(['title', 'year', 'lat', 'lng'])
         && e.get('id', eventId) == eventId
         && e.title is string && e.title.size() <= 200
@@ -26,8 +26,7 @@ service cloud.firestore {
         && e.get('description', '') is string && e.get('description', '').size() <= 4000
         && e.get('example', false) is bool
         && e.get('createdAt', 0) is number
-        && e.get('updatedAt', 0) is number
-        && e.get('links', []) is list && e.get('links', []).size() <= 20;
+        && e.get('updatedAt', 0) is number;
     }
   }
 }

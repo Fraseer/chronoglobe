@@ -148,11 +148,6 @@
           </div>
           <label class="f"><span>Category</span><select id="fCat"><option value="">Choose a category</option></select></label>
           <label class="f"><span>Description</span><textarea id="fDesc" rows="4" maxlength="4000" placeholder="What happened, and why it mattered"></textarea></label>
-          <div class="f">
-            <label for="fLinkAdd"><span>Linked events <em>optional</em></span></label>
-            <div class="link-chips" id="fLinks"></div>
-            <input id="fLinkAdd" list="linkList" placeholder="Type an event to link it" autocomplete="off">
-          </div>
           <p class="form-err" id="formErr" role="alert" hidden></p>
           <div class="form-actions">
             <button class="btn primary" type="submit" id="fSave">Save event</button>
@@ -164,7 +159,6 @@
   </main>
 </div>
 <datalist id="placeList"></datalist>
-<datalist id="linkList"></datalist>
 <div class="tip" id="tip" hidden></div>
 <div class="toast" id="toast" hidden></div>
 <div class="sr-only" id="toastLive" role="status"></div>

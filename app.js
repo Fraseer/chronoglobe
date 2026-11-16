@@ -203,7 +203,6 @@ function normEvent(id, d) {
     place: String(d.place || "").slice(0, 120), lat: clamp(lat, -90, 90), lng: clamp(lng, -180, 180),
     category: CAT_LABEL[d.category] ? d.category : "", description: String(d.description || "").slice(0, 4000),
     example: d.example === true, createdAt: Number(d.createdAt) || 0, updatedAt: Number(d.updatedAt) || 0,
-    links: Array.isArray(d.links) ? [...new Set(d.links.filter((x) => typeof x === "string" && x && x !== id && x.length <= 80))].slice(0, 20) : [],
   };
 }
 const byId = (id) => state.events.find((e) => e.id === id) || null;
@@ -235,7 +234,7 @@ function strength(d) { return 1 - d / (state.tol + 1); }
 const C = {};
 const TOKENS = {
   ink: "--ink", ink2: "--ink-2", muted: "--muted", line: "--line", line2: "--line-2",
-  sand: "--sand", sandDeep: "--sand-deep", sandWash: "--sand-wash", rose: "--rose", sage: "--sage", flashCore: "--flash-core", glow: "--glow", glowEdge: "--glow-edge", oceanHi: "--ocean-hi", oceanLo: "--ocean-lo", land: "--land", landEdge: "--land-edge", grat: "--grat",
+  sand: "--sand", sandWash: "--sand-wash", rose: "--rose", sage: "--sage", flashCore: "--flash-core", glow: "--glow", glowEdge: "--glow-edge", oceanHi: "--ocean-hi", oceanLo: "--ocean-lo", land: "--land", landEdge: "--land-edge", grat: "--grat",
   dot: "--dot", halo: "--halo", shade: "--shade", atmo: "--atmo", band: "--band", panel: "--panel",
 };
 function readColors() {
@@ -411,7 +410,7 @@ const globe = (() => {
     // points on the far side are never drawn, so expire their fades here
     for (const [id, g] of afterglow) if (now - g.t >= FADE_MS) afterglow.delete(id);
     const pulsing = !reduceMotion.matches && matchList.length > 0;
-    if (keep || pulsing || afterglow.size || (arcCount && !reduceMotion.matches)) request(); else last = 0;
+    if (keep || pulsing || afterglow.size) request(); else last = 0;
   }
   const center = () => [-rot[0], -rot[1]];
   function angleTo(lng, lat) { return d3.geoDistance([lng, lat], center()); }
@@ -462,54 +461,11 @@ const globe = (() => {
     drawPoints(now);
   }
 
-  // ---- arcs between linked events: the selected event's links in rose, lit events' links in sand
-  let arcCount = 0;
-  function drawArcs(now, c) {
-    const pairs = new Map();
-    const add = (a, b, kind) => {
-      const [x, y] = dateOrder(a, b) <= 0 ? [a, b] : [b, a];
-      const key = x.id + "|" + y.id, cur = pairs.get(key);
-      if (!cur || kind === "sel") pairs.set(key, { a: x, b: y, kind });
-    };
-    for (const { e } of matchList) for (const o of linksOf(e)) add(e, o, "lit");
-    const sel = state.selectedId && byId(state.selectedId);
-    if (sel) for (const o of linksOf(sel)) add(sel, o, "sel");
-    arcCount = 0;
-    if (!pairs.size) return;
-    const r = R * zoom, cx = W / 2, cy = H / 2;
-    const flow = reduceMotion.matches ? 0 : -((now || 0) / 35) % 14;
-    for (const { a, b, kind } of [...pairs.values()].sort((p, q) => (p.kind === "sel") - (q.kind === "sel"))) {
-      const A = [a.lng, a.lat], B = [b.lng, b.lat], dist = d3.geoDistance(A, B);
-      if (dist < 1e-4) continue;
-      const interp = d3.geoInterpolate(A, B), lift = Math.min(0.35, 0.06 + dist * 0.16);
-      const pts = [];
-      for (let i = 0; i <= 64; i++) {
-        const t = i / 64, p = interp(t), hgt = lift * Math.sin(Math.PI * t);
-        const ang = d3.geoDistance(p, c), z = Math.cos(ang);
-        // a lifted point is visible in front of the globe, or when it pokes out past the rim
-        const show = z >= 0 || (1 + hgt) * Math.sin(ang) > 1;
-        const [px, py] = proj(p);
-        pts.push(show ? [cx + (px - cx) * (1 + hgt), cy + (py - cy) * (1 + hgt)] : null);
-      }
-      if (!pts.some(Boolean)) continue;
-      arcCount++;
-      const trace = () => { ctx.beginPath(); let pen = false; for (const q of pts) { if (!q) { pen = false; continue; } if (pen) ctx.lineTo(q[0], q[1]); else { ctx.moveTo(q[0], q[1]); pen = true; } } };
-      const colour = kind === "sel" ? C.rose : C.sandDeep, width = kind === "sel" ? 2.2 : 1.6;
-      ctx.lineCap = "round"; ctx.lineJoin = "round";
-      trace(); ctx.setLineDash([]); ctx.strokeStyle = C.halo; ctx.lineWidth = width + 3; ctx.globalAlpha = 0.7; ctx.stroke();
-      trace(); ctx.strokeStyle = colour; ctx.lineWidth = width; ctx.globalAlpha = 0.35; ctx.stroke();
-      // dashes run from the earlier event to the later one
-      trace(); ctx.setLineDash([7, 7]); ctx.lineDashOffset = flow; ctx.globalAlpha = 1; ctx.stroke();
-      ctx.setLineDash([]); ctx.lineDashOffset = 0;
-    }
-    ctx.globalAlpha = 1;
-  }
   function drawPoints(now) {
     fanK = fanProgress(now);
     hits = [];
     const far = [];
     const c = center();
-    drawArcs(now, c);
     const lit = [];
     // plain dots first; events in the window, or still fading out of it, are drawn on top
     for (const e of state.events) {
@@ -852,7 +808,6 @@ const globe = (() => {
     get farMatches() { return farMatches; },
     getView() { return { rot: [rot[0], rot[1]], zoom }; },
     closeFan,
-    arcCount: () => arcCount,
     fanPoints() { return fanHits.map((h) => ({ id: h.e.id, x: h.x, y: h.y })); },
     project(lng, lat) { return proj([lng, lat]); },
     setView(v) { if (v && Array.isArray(v.rot)) { rot[0] = +v.rot[0] || 0; rot[1] = clamp(+v.rot[1] || 0, -88, 88); } if (v && v.zoom) zoom = clamp(+v.zoom, 0.7, 8); spinning = false; request(); },
@@ -1324,16 +1279,7 @@ function upsert(id, body) {
   eventsChanged();
 }
 function toRow(e) {
-  return { id: e.id, title: e.title, year: e.year, month: e.month, day: e.day, place: e.place, lat: e.lat, lng: e.lng, category: e.category, description: e.description, example: e.example, createdAt: e.createdAt || Date.now(), updatedAt: e.updatedAt || 0, ...withLinks(e.links) };
-}
-// the links field is only sent when there are links, so events without any still pass older database rules
-function withLinks(links) { return links && links.length ? { links } : {}; }
-// links work both ways: a link saved on either event counts for both
-function linksOf(e) {
-  const ids = new Set(e.links || []);
-  for (const x of state.events) if (x.links && x.links.includes(e.id)) ids.add(x.id);
-  ids.delete(e.id);
-  return state.events.filter((x) => ids.has(x.id)).sort(dateOrder);
+  return { id: e.id, title: e.title, year: e.year, month: e.month, day: e.day, place: e.place, lat: e.lat, lng: e.lng, category: e.category, description: e.description, example: e.example, createdAt: e.createdAt || Date.now(), updatedAt: e.updatedAt || 0 };
 }
 function describeError(err) {
   if (err && err.code === "local_blocked") {
@@ -1906,17 +1852,6 @@ function renderDetail() {
       h("h3", { text: `Also in ${fmtYear(e.year)}` }),
       sameYear.map((x) => h("button", { type: "button", text: x.title, onclick: () => selectEvent(x.id, { fly: true }) }))));
   }
-  const linked = linksOf(e);
-  if (linked.length) {
-    kids.push(h("section", { class: "same-year", "aria-label": "Linked events" },
-      h("h3", { text: "Linked" }),
-      linked.map((x) => {
-        const gap = x.year - e.year;
-        return h("button", { type: "button", onclick: () => selectEvent(x.id, { fly: true }) },
-          h("span", { class: "sy-year", text: fmtYear(x.year) }), x.title,
-          h("span", { class: "sy-gap", text: gap === 0 ? "same year" : `${yrsWord(Math.abs(gap), "yr")} ${gap > 0 ? "later" : "earlier"}` }));
-      })));
-  }
   // other events within 25 km of this one
   const near = state.events.filter((x) => x.id !== e.id && d3.geoDistance([x.lng, x.lat], [e.lng, e.lat]) * 6371 <= 25).sort(dateOrder);
   if (near.length) {
@@ -1964,28 +1899,6 @@ function formComplete() {
   return !!(F.title.value.trim() && y != null && !Number.isNaN(y) && F.place.value.trim() && state.draft && F.cat.value && F.desc.value.trim());
 }
 function updateSave() { if (F.save.textContent !== "Saving…") F.save.disabled = !formComplete(); }
-// linked events picked in the form, shown as chips
-let draftLinks = new Set();
-const linkLabel = (x) => `${x.title} (${fmtYear(x.year)})`;
-function fillLinkOptions() {
-  const others = state.events.filter((x) => x.id !== state.editingId && !draftLinks.has(x.id)).sort(dateOrder);
-  $("#linkList").replaceChildren(...others.map((x) => h("option", { value: linkLabel(x) })));
-}
-function renderLinkChips() {
-  $("#fLinks").replaceChildren(...[...draftLinks].map(byId).filter(Boolean).sort(dateOrder).map((x) =>
-    h("span", { class: "link-chip" }, h("span", { text: linkLabel(x) }),
-      h("button", { type: "button", "aria-label": `Unlink ${x.title}`, text: "×", onclick: () => { draftLinks.delete(x.id); renderLinkChips(); fillLinkOptions(); } }))));
-}
-function tryAddLink() {
-  const v = $("#fLinkAdd").value.trim().toLowerCase();
-  const x = v && state.events.find((y) => y.id !== state.editingId && linkLabel(y).toLowerCase() === v);
-  if (!x) return;
-  draftLinks.add(x.id);
-  $("#fLinkAdd").value = "";
-  renderLinkChips(); fillLinkOptions();
-}
-$("#fLinkAdd").addEventListener("input", tryAddLink);
-$("#fLinkAdd").addEventListener("change", tryAddLink);
 $("#formView").addEventListener("input", updateSave);
 $("#formView").addEventListener("change", updateSave);
 function openForm(id) {
@@ -2003,9 +1916,6 @@ function openForm(id) {
   F.place.value = e ? e.place : "";
   F.cat.value = e ? e.category : "";
   F.desc.value = e ? e.description : "";
-  draftLinks = new Set(e ? linksOf(e).map((x) => x.id) : []);
-  $("#fLinkAdd").value = "";
-  renderLinkChips(); fillLinkOptions();
   state.placeAuto = !e || !e.place;
   state.draft = e ? { lat: e.lat, lng: e.lng } : null;
   F.err.hidden = true;
@@ -2106,18 +2016,10 @@ $("#formView").addEventListener("submit", async (ev) => {
     lat: Math.round(state.draft.lat * 1000) / 1000, lng: Math.round(state.draft.lng * 1000) / 1000,
     category: F.cat.value || "", description: F.desc.value.trim().slice(0, 4000),
     example: false, createdAt: prev ? prev.createdAt : Date.now(), updatedAt: Date.now(),
-    ...withLinks([...draftLinks].filter((x) => byId(x)).slice(0, 20)),
   };
-  // links removed in this form may be stored on the other event; take them off there too
-  const unlinked = prev ? linksOf(prev).filter((x) => !draftLinks.has(x.id) && x.links.includes(prev.id)) : [];
   F.save.disabled = true; F.save.textContent = "Saving…";
   try {
     const id = await putEvent(state.editingId, body);
-    for (const x of unlinked) {
-      const row = Object.assign(toRow(x), { updatedAt: Date.now() });
-      delete row.links;
-      await putEvent(x.id, Object.assign(row, withLinks(x.links.filter((l) => l !== id))));
-    }
     state.editingId = null; state.draft = null;
     state.selectedId = id;
     setYear(year, { settle: false });
@@ -2171,7 +2073,7 @@ document.addEventListener("visibilitychange", () => { if (!document.hidden) rese
 resetIdle();
 
 // read-only hooks for the end-to-end tests
-window.__chronoglobe = Object.freeze({ arcs: () => globe.arcCount(), fan: () => globe.fanPoints(), project: (lng, lat) => globe.project(lng, lat), idleSpinning: () => globe.isSpinning(), view: () => globe.getView(), labelsShown: () => globe.labelsShown(), spin: () => globe.spinSpeed(), fading: () => afterglow.size });
+window.__chronoglobe = Object.freeze({ fan: () => globe.fanPoints(), project: (lng, lat) => globe.project(lng, lat), idleSpinning: () => globe.isSpinning(), view: () => globe.getView(), labelsShown: () => globe.labelsShown(), spin: () => globe.spinSpeed(), fading: () => afterglow.size });
 
 // ---------- boot
 renderChrome(); renderStats(); renderView(); update();
