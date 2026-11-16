@@ -281,20 +281,24 @@ const history = (() => {
     return cache.get(s.file);
   }
   // the same snapshot in more detail (borders/detail/, simplified less), for when the globe is zoomed in
-  const details = new Map();
-  function detailFor(snap) {
-    if (!details.has(snap.file)) {
-      details.set(snap.file, null);
-      fetch(`borders/detail/${snap.file}.json`).then((r) => { if (!r.ok) throw new Error(r.status); return r.json(); })
+  const details = new Map(), detailLoads = new Map();
+  function loadDetailFor(snap) {
+    if (!detailLoads.has(snap.file)) {
+      detailLoads.set(snap.file, fetch(`borders/detail/${snap.file}.json`).then((r) => { if (!r.ok) throw new Error(r.status); return r.json(); })
         .then((t) => {
           const fc = topojson.feature(t, t.objects.borders);
           for (const f of fc.features) if (d3.geoArea(f) > TAU) rewind(f);
-          details.set(snap.file, { mesh: topojson.mesh(t, t.objects.borders, (a, b) => a !== b), byName: new Map(fc.features.map((f) => [f.properties.NAME, f])) });
-          globe.request();
+          const d = { mesh: topojson.mesh(t, t.objects.borders, (a, b) => a !== b), byName: new Map(fc.features.map((f) => [f.properties.NAME, f])) };
+          details.set(snap.file, d);
+          return d;
         })
-        .catch(() => details.delete(snap.file));
+        .catch(() => { detailLoads.delete(snap.file); return null; }));
     }
-    return details.get(snap.file);
+    return detailLoads.get(snap.file);
+  }
+  function detailFor(snap) {
+    if (!details.has(snap.file)) loadDetailFor(snap).then((d) => { if (d) globe.request(); });
+    return details.get(snap.file) || null;
   }
   // the snapshot nearest the given year
   async function forYear(y) {
@@ -307,6 +311,9 @@ const history = (() => {
     wanted = y;
     const snap = await forYear(y);
     if (wanted !== y || !snap || snap === current) return;
+    // zoomed in, keep the current detailed borders up until the new map's detailed set has arrived,
+    // so the globe never flashes the simpler version
+    if (globe.isDetailed()) { await loadDetailFor(snap); if (wanted !== y) return; }
     current = snap;
     globe.request();
     renderBordersNote();
@@ -338,7 +345,10 @@ const globe = (() => {
   const GRAT = d3.geoGraticule().step([15, 15])();
   const LAND = topojson.feature(WORLD, WORLD.objects.land);
   // zoomed in, swap to the 1:50m outlines (loaded once, on first zoom); the whole-world view keeps 1:110m
-  const DETAIL_ZOOM = 1.5;
+  // detailed from 1.5x zoom, back to simple only below 1.2x, so a small wobble at the threshold
+  // doesn't flip between the two
+  const DETAIL_ZOOM = 1.5, SIMPLE_ZOOM = 1.2;
+  let detailed = false;
   let detail = null, detailLoading = false;
   function loadDetail() {
     if (detail || detailLoading) return;
@@ -459,10 +469,11 @@ const globe = (() => {
     now = now || performance.now();
     const r = R * zoom, cx = W / 2, cy = H / 2;
     // zoomed in, the detailed outlines are already finer than a pixel, so skip the curve-smoothing resampling
-    proj.rotate(rot).scale(r).translate([cx, cy]).clipExtent([[-8, -8], [W + 8, H + 8]]).precision(zoom >= DETAIL_ZOOM ? 0 : 0.35);
+    if (zoom >= DETAIL_ZOOM) detailed = true; else if (zoom < SIMPLE_ZOOM) detailed = false;
+    proj.rotate(rot).scale(r).translate([cx, cy]).clipExtent([[-8, -8], [W + 8, H + 8]]).precision(detailed ? 0 : 0.35);
     const view = `${rot[0].toFixed(3)},${rot[1].toFixed(3)},${zoom.toFixed(4)}`;
-    if (zoom >= DETAIL_ZOOM) loadDetail();
-    const fine = zoom >= DETAIL_ZOOM && !!detail;
+    if (detailed) loadDetail();
+    const fine = detailed && !!detail;
     const hist = history.current;
     const hd = fine && hist ? history.detailFor(hist) : null;
     const key = [view, W, H, dpr, fine ? 1 : 0, hist ? hist.year : "", hd ? 1 : 0, hist ? matchList.map((m) => m.e.id).join(",") : ""].join("|");
@@ -849,6 +860,7 @@ const globe = (() => {
   return {
     request, flyTo, angleTo, resize,
     stopSpin() { spinning = false; },
+    isDetailed() { return detailed; },
     startIdleSpin() { if (!anim && !inertia && !pointers.size) { spinning = true; request(); } },
     isSpinning() { return spinning; },
     // deg per ms; ignored while someone is dragging the globe itself
