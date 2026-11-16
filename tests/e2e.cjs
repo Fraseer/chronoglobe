@@ -341,6 +341,35 @@ function check(name, ok, info) {
   check("Enter on a Full timeline row opens the event", (await ft.evaluate(() => document.querySelector(".d-title")?.textContent)) === "Fall of Constantinople");
   await ft.context().close();
 
+  // ---------------------------------------------------------------- linked events and arcs
+  const lk = await newPage({ viewport: { width: 1300, height: 860 } }, () => {
+    if (!sessionStorage.getItem("seeded")) {
+      sessionStorage.setItem("seeded", "1");
+      localStorage.setItem("chronoglobe:events:v1", JSON.stringify([
+        { id: "sarajevo", title: "Archduke Franz Ferdinand assassinated", year: 1914, month: 6, day: 28, place: "Sarajevo", lat: 43.856, lng: 18.413, category: "conflict", description: "x", createdAt: 1, links: ["versailles"] },
+        { id: "versailles", title: "Treaty of Versailles signed", year: 1919, month: 6, day: 28, place: "Versailles, France", lat: 48.805, lng: 2.12, category: "politics", description: "x", createdAt: 2 },
+        { id: "other", title: "Unrelated event", year: 1500, place: "Lima", lat: -12.05, lng: -77.04, category: "other", description: "x", createdAt: 0 },
+      ]));
+    }
+  });
+  await lk.fill("#yearInput", "1914"); await lk.press("#yearInput", "Enter"); await lk.waitForTimeout(1600);
+  check("a lit event draws an arc to the event it's linked to", (await lk.evaluate(() => window.__chronoglobe.arcs())) === 1);
+  await lk.click("#tabAll"); await lk.dblclick('#listItems .ev[data-year="1919"]'); await lk.waitForTimeout(1200);
+  st = await lk.evaluate(() => ({ linked: [...document.querySelectorAll('.same-year[aria-label="Linked events"] button')].map((b) => b.innerText.replace(/\n/g, " | ")), arcs: window.__chronoglobe.arcs() }));
+  check("a link saved on one event shows on the other, with the gap in years", st.linked.length === 1 && /Archduke/.test(st.linked[0]) && /5 yrs earlier/.test(st.linked[0]) && st.arcs === 1, st);
+  await lk.click("#detailView .btn >> text=Edit");
+  st = await lk.evaluate(() => [...document.querySelectorAll("#fLinks .link-chip")].map((c) => c.innerText));
+  check("the edit form shows links made from the other event", st.length === 1 && /Archduke/.test(st[0]), st);
+  await lk.click("#fLinks .link-chip button"); await lk.click("#fSave"); await lk.waitForTimeout(800);
+  st = await lk.evaluate(() => ({ stored: JSON.parse(localStorage.getItem("chronoglobe:events:v1")).find((r) => r.id === "sarajevo").links, arcs: window.__chronoglobe.arcs(), linked: document.querySelectorAll('.same-year[aria-label="Linked events"]').length }));
+  check("unlinking in the form removes the link from both events", !st.stored && st.arcs === 0 && st.linked === 0, st);
+  await lk.click("#detailView .btn >> text=Edit");
+  await lk.fill("#fLinkAdd", "Archduke Franz Ferdinand assassinated (1914)"); await lk.waitForTimeout(100);
+  await lk.click("#fSave"); await lk.waitForTimeout(800);
+  st = await lk.evaluate(() => ({ stored: JSON.parse(localStorage.getItem("chronoglobe:events:v1")).find((r) => r.id === "versailles").links, arcs: window.__chronoglobe.arcs() }));
+  check("picking an event in the Linked events field links it", st.stored.join() === "sarajevo" && st.arcs === 1, st);
+  await lk.context().close();
+
   // ---------------------------------------------------------------- idle spin after a minute
   const idle = await newPage({ viewport: { width: 1200, height: 800 } }, () => {
     const real = window.setTimeout;
