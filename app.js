@@ -273,7 +273,8 @@ const history = (() => {
           const fc = topojson.feature(t, t.objects.borders);
           // a few shapes come wound inside-out, which d3 reads as "everything but this"
           for (const f of fc.features) if (d3.geoArea(f) > TAU) rewind(f);
-          return { year: s.year, file: s.file, features: fc.features, mesh: topojson.mesh(t, t.objects.borders) };
+          // only lines shared by two states: each map's own rough coastline would double the real one
+          return { year: s.year, file: s.file, features: fc.features, mesh: topojson.mesh(t, t.objects.borders, (a, b) => a !== b) };
         })
         .catch(() => { cache.delete(s.file); return null; }));
     }
@@ -288,7 +289,7 @@ const history = (() => {
         .then((t) => {
           const fc = topojson.feature(t, t.objects.borders);
           for (const f of fc.features) if (d3.geoArea(f) > TAU) rewind(f);
-          details.set(snap.file, { mesh: topojson.mesh(t, t.objects.borders), byName: new Map(fc.features.map((f) => [f.properties.NAME, f])) });
+          details.set(snap.file, { mesh: topojson.mesh(t, t.objects.borders, (a, b) => a !== b), byName: new Map(fc.features.map((f) => [f.properties.NAME, f])) });
           globe.request();
         })
         .catch(() => details.delete(snap.file));
@@ -406,59 +407,80 @@ const globe = (() => {
       rot[0] += 0.004 * dt;
       keep = true;
     }
-    draw(now);
+    const unsettled = draw(now);
     // points on the far side are never drawn, so expire their fades here
     for (const [id, g] of afterglow) if (now - g.t >= FADE_MS) afterglow.delete(id);
     const pulsing = !reduceMotion.matches && matchList.length > 0;
-    if (keep || pulsing || afterglow.size) request(); else last = 0;
+    if (keep || pulsing || afterglow.size || unsettled) request(); else last = 0;
   }
   const center = () => [-rot[0], -rot[1]];
   function angleTo(lng, lat) { return d3.geoDistance([lng, lat], center()); }
 
+  // The map itself (ocean, land, borders, shading) is drawn on its own canvas underneath and only
+  // redrawn when the view, the border map or the lit events change; the points canvas on top is
+  // the only one redrawn every frame. While the globe is moving it uses the light 1:110m map and the simpler border set,
+  // switching to the detailed ones about 0.2 s after it settles.
+  const baseCv = $("#globeBase"), bctx = baseCv.getContext("2d");
+  let baseKey = "", lastView = "", lastMove = 0;
+  const SETTLE_MS = 180;
   function draw(now) {
+    now = now || performance.now();
+    const r = R * zoom, cx = W / 2, cy = H / 2;
+    proj.rotate(rot).scale(r).translate([cx, cy]).clipExtent([[-8, -8], [W + 8, H + 8]]);
+    const view = `${rot[0].toFixed(3)},${rot[1].toFixed(3)},${zoom.toFixed(4)}`;
+    if (view !== lastView) { lastView = view; lastMove = now; }
+    const settled = now - lastMove > SETTLE_MS;
+    if (zoom >= DETAIL_ZOOM) loadDetail();
+    const fine = settled && zoom >= DETAIL_ZOOM && !!detail;
+    const hist = history.current;
+    const hd = fine && hist ? history.detailFor(hist) : null;
+    const key = [view, W, H, dpr, fine ? 1 : 0, hist ? hist.year : "", hd ? 1 : 0, hist ? matchList.map((m) => m.e.id).join(",") : ""].join("|");
+    if (key !== baseKey) { baseKey = key; drawBase(fine, hist, hd, r, cx, cy); }
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.clearRect(0, 0, W, H);
-    const r = R * zoom, cx = W / 2, cy = H / 2;
-    proj.rotate(rot).scale(r).translate([cx, cy]);
+    drawPoints(now);
+    return !settled;
+  }
+  function drawBase(fine, hist, hd, r, cx, cy) {
+    if (baseCv.width !== canvas.width || baseCv.height !== canvas.height) { baseCv.width = canvas.width; baseCv.height = canvas.height; }
+    const g = bctx;
+    path.context(g);
+    g.setTransform(dpr, 0, 0, dpr, 0, 0);
+    g.clearRect(0, 0, W, H);
 
-    const ag = ctx.createRadialGradient(cx, cy, r * 0.97, cx, cy, r * 1.13);
+    const ag = g.createRadialGradient(cx, cy, r * 0.97, cx, cy, r * 1.13);
     ag.addColorStop(0, C.atmo); ag.addColorStop(1, "rgba(0,0,0,0)");
-    ctx.fillStyle = ag; ctx.beginPath(); ctx.arc(cx, cy, r * 1.13, 0, TAU); ctx.fill();
+    g.fillStyle = ag; g.beginPath(); g.arc(cx, cy, r * 1.13, 0, TAU); g.fill();
 
-    const og = ctx.createRadialGradient(cx - r * 0.38, cy - r * 0.42, r * 0.04, cx, cy, r);
+    const og = g.createRadialGradient(cx - r * 0.38, cy - r * 0.42, r * 0.04, cx, cy, r);
     og.addColorStop(0, C.oceanHi); og.addColorStop(1, C.oceanLo);
-    ctx.fillStyle = og; ctx.beginPath(); path(SPHERE); ctx.fill();
+    g.fillStyle = og; g.beginPath(); path(SPHERE); g.fill();
 
-    ctx.beginPath(); path(GRAT); ctx.strokeStyle = C.grat; ctx.lineWidth = 1; ctx.stroke();
-    if (zoom >= DETAIL_ZOOM) loadDetail();
-    const fine = zoom >= DETAIL_ZOOM && detail;
+    g.beginPath(); path(GRAT); g.strokeStyle = C.grat; g.lineWidth = 1; g.stroke();
     const land = fine ? detail.land : LAND;
-    ctx.beginPath(); path(land); ctx.fillStyle = C.land; ctx.fill();
-    ctx.strokeStyle = C.landEdge; ctx.lineWidth = 0.8; ctx.stroke();
-    const hist = history.current;
+    g.beginPath(); path(land); g.fillStyle = C.land; g.fill();
+    g.strokeStyle = C.landEdge; g.lineWidth = 0.8; g.stroke();
     if (hist) {
       // borders of the time, kept to today's land; the polity each lit event fell in is shaded
-      ctx.save();
-      ctx.beginPath(); path(land); ctx.clip();
-      const hd = fine ? history.detailFor(hist) : null;
+      g.save();
+      g.beginPath(); path(land); g.clip();
       const shaded = new Set();
       for (const { e } of matchList) {
         let f = history.polityAt(hist, e.lng, e.lat);
         if (f && hd) f = hd.byName.get(f.properties.NAME) || f;
-        if (f && !shaded.has(f)) { shaded.add(f); ctx.beginPath(); path(f); ctx.fillStyle = C.sandWash; ctx.fill(); }
+        if (f && !shaded.has(f)) { shaded.add(f); g.beginPath(); path(f); g.fillStyle = C.sandWash; g.fill(); }
       }
-      ctx.beginPath(); path(hd ? hd.mesh : hist.mesh); ctx.strokeStyle = C.landEdge; ctx.lineWidth = 0.6; ctx.globalAlpha = 0.85; ctx.stroke(); ctx.globalAlpha = 1;
-      ctx.restore();
+      g.beginPath(); path(hd ? hd.mesh : hist.mesh); g.strokeStyle = C.landEdge; g.lineWidth = 0.6; g.globalAlpha = 0.85; g.stroke(); g.globalAlpha = 1;
+      g.restore();
     } else {
-      ctx.beginPath(); path(fine ? detail.borders : BORDERS); ctx.lineWidth = 0.5; ctx.globalAlpha = 0.8; ctx.stroke(); ctx.globalAlpha = 1;
+      g.beginPath(); path(fine ? detail.borders : BORDERS); g.lineWidth = 0.5; g.globalAlpha = 0.8; g.stroke(); g.globalAlpha = 1;
     }
 
-    const sg = ctx.createRadialGradient(cx - r * 0.38, cy - r * 0.42, r * 0.1, cx, cy, r);
+    const sg = g.createRadialGradient(cx - r * 0.38, cy - r * 0.42, r * 0.1, cx, cy, r);
     sg.addColorStop(0, "rgba(255,255,255,0.10)"); sg.addColorStop(0.6, "rgba(255,255,255,0)"); sg.addColorStop(1, C.shade);
-    ctx.fillStyle = sg; ctx.beginPath(); ctx.arc(cx, cy, r, 0, TAU); ctx.fill();
-    ctx.beginPath(); ctx.arc(cx, cy, r, 0, TAU); ctx.strokeStyle = C.landEdge; ctx.lineWidth = 1; ctx.globalAlpha = 0.55; ctx.stroke(); ctx.globalAlpha = 1;
-
-    drawPoints(now);
+    g.fillStyle = sg; g.beginPath(); g.arc(cx, cy, r, 0, TAU); g.fill();
+    g.beginPath(); g.arc(cx, cy, r, 0, TAU); g.strokeStyle = C.landEdge; g.lineWidth = 1; g.globalAlpha = 0.55; g.stroke(); g.globalAlpha = 1;
+    path.context(ctx);
   }
 
   function drawPoints(now) {

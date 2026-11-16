@@ -107,6 +107,7 @@ button, input, select, textarea { font: inherit; color: inherit; }
 /* ---------- stage */
 .stage { display: grid; grid-template-columns: minmax(0, 1fr) 384px; grid-template-rows: minmax(0, 1fr) auto; min-height: 0; }
 .globe-wrap { grid-column: 1; grid-row: 1; position: relative; min-height: 0; overflow: hidden; }
+#globeBase { position: absolute; inset: 0; width: 100%; height: 100%; display: block; pointer-events: none; }
 #globe { position: absolute; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; cursor: grab; }
 #globe.over-point { cursor: pointer; }
 #globe.picking, #globe.picking.over-point { cursor: crosshair; }
