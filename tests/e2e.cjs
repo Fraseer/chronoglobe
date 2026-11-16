@@ -370,6 +370,16 @@ function check(name, ok, info) {
   check("picking an event in the Linked events field links it", st.stored.join() === "sarajevo" && st.arcs === 1, st);
   await lk.context().close();
 
+  // ---------------------------------------------------------------- historical borders
+  const hb = await newPage({ viewport: { width: 1300, height: 860 } });
+  await hb.click("#tabAll"); await hb.dblclick('#listItems .ev[data-year="1453"]'); await hb.waitForTimeout(2000);
+  st = await hb.evaluate(() => ({ note: document.querySelector("#hudBorders").textContent, then: [...document.querySelectorAll(".d-meta dt")].map((d) => d.textContent + ": " + d.nextElementSibling.textContent) }));
+  check("the globe uses the border map nearest the year", st.note === "Borders c. 1492", st);
+  check("event details say which state the place belonged to then", st.then.some((t) => /^Then: Ottoman Empire\s+map c\. 1492$/.test(t)), st);
+  await hb.fill("#yearInput", "200"); await hb.press("#yearInput", "Enter"); await hb.waitForTimeout(1500);
+  check("moving the year swaps the border map", (await hb.evaluate(() => document.querySelector("#hudBorders").textContent)) === "Borders c. AD 200");
+  await hb.context().close();
+
   // ---------------------------------------------------------------- idle spin after a minute
   const idle = await newPage({ viewport: { width: 1200, height: 800 } }, () => {
     const real = window.setTimeout;

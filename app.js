@@ -247,6 +247,70 @@ readColors();
 // ======================================================================
 // Globe
 // ======================================================================
+// ======================================================================
+// Historical borders: snapshots from historical-basemaps (GPL-3.0), one per period,
+// simplified into borders/<year>.json and loaded only when the timeline reaches them.
+// Dataset years count BC as negative (-500 = 500 BC); here that is astronomical -499.
+// ======================================================================
+const history = (() => {
+  let years = null, current = null, wanted = null;
+  const cache = new Map();
+  const polities = new Map();
+  function list() {
+    if (!years) years = fetch("borders/years.json").then((r) => r.json())
+      .then((a) => a.map((y) => ({ file: y, year: y < 0 ? y + 1 : y })))
+      .catch(() => []);   // opened from disk: keep today's borders
+    return years;
+  }
+  function rewind(f) {
+    const g = f.geometry;
+    if (g.type === "Polygon") g.coordinates.forEach((r) => r.reverse());
+    else if (g.type === "MultiPolygon") g.coordinates.forEach((p) => p.forEach((r) => r.reverse()));
+  }
+  function load(s) {
+    if (!cache.has(s.file)) {
+      cache.set(s.file, fetch(`borders/${s.file}.json`).then((r) => { if (!r.ok) throw new Error(r.status); return r.json(); })
+        .then((t) => {
+          const fc = topojson.feature(t, t.objects.borders);
+          // a few shapes come wound inside-out, which d3 reads as "everything but this"
+          for (const f of fc.features) if (d3.geoArea(f) > TAU) rewind(f);
+          return { year: s.year, features: fc.features, mesh: topojson.mesh(t, t.objects.borders) };
+        })
+        .catch(() => { cache.delete(s.file); return null; }));
+    }
+    return cache.get(s.file);
+  }
+  // the snapshot nearest the given year
+  async function forYear(y) {
+    const ys = await list();
+    if (!ys.length) return null;
+    return load(ys.reduce((b, s) => (Math.abs(s.year - y) < Math.abs(b.year - y) ? s : b)));
+  }
+  // keep the globe's borders on the snapshot nearest the slider
+  async function follow(y) {
+    wanted = y;
+    const snap = await forYear(y);
+    if (wanted !== y || !snap || snap === current) return;
+    current = snap;
+    globe.request();
+    renderBordersNote();
+  }
+  // the polity a point fell in; coasts and straits are simplified, so look up to ~60 km around it
+  function polityAt(snap, lng, lat) {
+    const key = `${snap.year}:${lng}:${lat}`;
+    if (polities.has(key)) return polities.get(key);
+    const inside = (p) => snap.features.find((f) => d3.geoContains(f, p));
+    let f = inside([lng, lat]);
+    const k = 1 / Math.max(0.2, Math.cos((lat * Math.PI) / 180));
+    for (let r = 0.15; !f && r <= 0.61; r += 0.15) {
+      for (let a = 0; a < 360 && !f; a += 30) f = inside([lng + r * k * Math.cos((a * Math.PI) / 180), lat + r * Math.sin((a * Math.PI) / 180)]);
+    }
+    polities.set(key, f || null);
+    return f || null;
+  }
+  return { follow, forYear, polityAt, get current() { return current; } };
+})();
+
 const globe = (() => {
   const wrap = $("#globeWrap"), canvas = $("#globe"), ctx = canvas.getContext("2d");
   let W = 1, H = 1, R = 100, dpr = 1;
@@ -343,7 +407,21 @@ const globe = (() => {
     ctx.beginPath(); path(GRAT); ctx.strokeStyle = C.grat; ctx.lineWidth = 1; ctx.stroke();
     ctx.beginPath(); path(LAND); ctx.fillStyle = C.land; ctx.fill();
     ctx.strokeStyle = C.landEdge; ctx.lineWidth = 0.8; ctx.stroke();
-    ctx.beginPath(); path(BORDERS); ctx.lineWidth = 0.5; ctx.globalAlpha = 0.8; ctx.stroke(); ctx.globalAlpha = 1;
+    const hist = history.current;
+    if (hist) {
+      // borders of the time, kept to today's land; the polity each lit event fell in is shaded
+      ctx.save();
+      ctx.beginPath(); path(LAND); ctx.clip();
+      const shaded = new Set();
+      for (const { e } of matchList) {
+        const f = history.polityAt(hist, e.lng, e.lat);
+        if (f && !shaded.has(f)) { shaded.add(f); ctx.beginPath(); path(f); ctx.fillStyle = C.sandWash; ctx.fill(); }
+      }
+      ctx.beginPath(); path(hist.mesh); ctx.strokeStyle = C.landEdge; ctx.lineWidth = 0.6; ctx.globalAlpha = 0.85; ctx.stroke(); ctx.globalAlpha = 1;
+      ctx.restore();
+    } else {
+      ctx.beginPath(); path(BORDERS); ctx.lineWidth = 0.5; ctx.globalAlpha = 0.8; ctx.stroke(); ctx.globalAlpha = 1;
+    }
 
     const sg = ctx.createRadialGradient(cx - r * 0.38, cy - r * 0.42, r * 0.1, cx, cy, r);
     sg.addColorStop(0, "rgba(255,255,255,0.10)"); sg.addColorStop(0.6, "rgba(255,255,255,0)"); sg.addColorStop(1, C.shade);
@@ -1471,6 +1549,7 @@ function update() {
   timeline.draw();
   globe.request();
   renderHud();
+  history.follow(state.year);
   if (!panelQueued) { panelQueued = true; requestAnimationFrame(() => { panelQueued = false; renderCounts(); if (listShown()) renderList(); if (state.view === "detail") refreshDetail(); }); }
 }
 function eventsChanged() {
@@ -1536,6 +1615,11 @@ function renderHud() {
   el.hidden = false;
   const n = matchList.length;
   el.replaceChildren(n ? h("b", { text: `${n} ${n === 1 ? "event" : "events"}` }) : "No events", " " + windowPhrase());
+}
+function renderBordersNote() {
+  const el = $("#hudBorders"), snap = history.current;
+  el.hidden = !snap;
+  if (snap) el.textContent = `Borders c. ${fmtYear(snap.year)}`;
 }
 function renderFar(far) {
   const btn = $("#hudFar");
@@ -1764,6 +1848,15 @@ function renderDetail() {
   const add = (k, v) => meta.append(h("dt", { text: k }), h("dd", null, v));
   add("When", h("span", null, fmtDate(e), h("span", { class: "mono", text: `  ${yearsAgo(e.year)}` })));
   if (e.place) add("Where", e.place);
+  // which state the place belonged to at the time, from the nearest border map
+  const then = h("span", { class: "then", text: "…" });
+  add("Then", then);
+  history.forYear(e.year).then((snap) => {
+    if (!snap) { then.closest("dd").previousElementSibling.remove(); then.closest("dd").remove(); return; }
+    const f = history.polityAt(snap, e.lng, e.lat), p = f && f.properties;
+    then.replaceChildren(p ? p.NAME + (p.SUBJECTO && p.SUBJECTO !== p.NAME ? ` (under ${p.SUBJECTO})` : "") : "No mapped state",
+      h("span", { class: "mono then-src", text: `  map c. ${fmtYear(snap.year)}` }));
+  });
   add("Location", h("span", { class: "mono", text: fmtCoord(e.lat, e.lng) }));
   const kids = [
     h("div", { class: "d-top" },

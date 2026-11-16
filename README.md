@@ -7,6 +7,7 @@ Built for keeping track of the events from daily history guessing games like [An
 ## Using it
 
 - **Globe**: drag to spin, scroll or pinch to zoom. After a minute without any input it turns slowly on its own (not while locked, playing or adding an event). Clicking a point centres the globe on it and opens its details. Where several events share a spot, a click opens the one nearest the timeline's year and fans the others out in a ring to pick from; the details panel also lists other events within 25 km under "Also here".
+- **Historical borders**: the globe shows the borders of the time, from the snapshot nearest the slider's year ("Borders c. 1492" under the event count). An event's details show which state it fell in then ("Then: Ottoman Empire"), and the states of lit events are shaded. The borders are approximate and jump between snapshots, which are about a century apart before 1500 and closer together after.
 - **Timeline**: drag along it, type a year (e.g. `44 BC`), step ±1 or ±10 years, jump between events, or press play.
   - Dragging the timeline spins the globe: the faster you drag, the faster it turns. While time is moving the points show without their names, and a point that leaves the window fades out over a couple of seconds.
   - When you let go, the globe turns toward the matching events if none are in view.
@@ -81,14 +82,22 @@ The repository root is the site. On GitHub Pages: **Settings → Pages → Build
 | `styles.css` | Styles, with light and dark themes |
 | `app.js` | The app: globe, timeline, sidebar, storage |
 | `world-110m.js` | World outline data |
+| `LICENSE` | GNU GPL v3.0 |
 | `firebase-config.js` | Firebase project for syncing (null = browser only) |
 | `firestore.rules` | Database rules: each account reads and writes only its own events, with field and size limits |
+| `borders/` | Historical border snapshots (GPL-3.0, see its README) |
 | `vendor/` | d3, topojson-client and the Firebase SDK (loaded only when sync is set up), kept in the repo so the site doesn't depend on a CDN |
 | `tests/` | Static server and end-to-end tests |
 
 ## Credits
 
+- Historical borders from [historical-basemaps](https://github.com/aourednik/historical-basemaps) by André Ourednik and contributors (GPL-3.0), simplified for the web; see `borders/README.md`.
+
 - [d3](https://d3js.org) 7.9.0 and [topojson-client](https://github.com/topojson/topojson-client) 3.1.0 by Mike Bostock (ISC licence).
 - Country and land outlines from [world-atlas](https://github.com/topojson/world-atlas) 2.0.2 (ISC), based on [Natural Earth](https://www.naturalearthdata.com/) (public domain).
 - [Firebase JS SDK](https://github.com/firebase/firebase-js-sdk) 12.19.0 compat builds (Apache 2.0).
 - Fonts from Google Fonts: Bodoni Moda, Instrument Sans and IBM Plex Mono (SIL Open Font License).
+
+## Licence
+
+Chronoglobe is free software under the [GNU General Public License v3.0](LICENSE), because it includes the GPL-3.0 historical-basemaps data. You may use, share and change it under those terms.
