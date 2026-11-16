@@ -407,31 +407,62 @@ const globe = (() => {
       rot[0] += 0.004 * dt;
       keep = true;
     }
-    const unsettled = draw(now);
+    draw(now);
     // points on the far side are never drawn, so expire their fades here
     for (const [id, g] of afterglow) if (now - g.t >= FADE_MS) afterglow.delete(id);
     const pulsing = !reduceMotion.matches && matchList.length > 0;
-    if (keep || pulsing || afterglow.size || unsettled) request(); else last = 0;
+    if (keep || pulsing || afterglow.size) request(); else last = 0;
   }
   const center = () => [-rot[0], -rot[1]];
   function angleTo(lng, lat) { return d3.geoDistance([lng, lat], center()); }
 
   // The map itself (ocean, land, borders, shading) is drawn on its own canvas underneath and only
   // redrawn when the view, the border map or the lit events change; the points canvas on top is
-  // the only one redrawn every frame. While the globe is moving it uses the light 1:110m map and the simpler border set,
-  // switching to the detailed ones about 0.2 s after it settles.
+  // the only one redrawn every frame.
   const baseCv = $("#globeBase"), bctx = baseCv.getContext("2d");
-  let baseKey = "", lastView = "", lastMove = 0;
-  const SETTLE_MS = 180;
+  // Shapes are split into pieces (each island, each border section) with a bounding circle, so
+  // pieces round the back of the globe or off-screen are skipped before any projection work.
+  const pieceCache = new WeakMap();
+  function pieces(obj) {
+    let out = pieceCache.get(obj);
+    if (out) return out;
+    out = [];
+    const add = (type, coordinates) => {
+      const g = { type, coordinates };
+      const c = d3.geoCentroid(g);
+      let rad = 0;
+      const walk = (a) => { if (typeof a[0] === "number") { const d = d3.geoDistance(c, a); if (d > rad) rad = d; } else a.forEach(walk); };
+      walk(coordinates);
+      out.push({ g, c, rad });
+    };
+    const take = (o) => {
+      if (!o) return;
+      if (o.type === "FeatureCollection") o.features.forEach(take);
+      else if (o.type === "Feature") take(o.geometry);
+      else if (o.type === "GeometryCollection") o.geometries.forEach(take);
+      else if (o.type === "MultiPolygon") o.coordinates.forEach((c) => add("Polygon", c));
+      else if (o.type === "MultiLineString") o.coordinates.forEach((c) => add("LineString", c));
+      else add(o.type, o.coordinates);
+    };
+    take(obj);
+    pieceCache.set(obj, out);
+    return out;
+  }
+  // the pieces of a shape that can be on screen right now
+  function visible(obj, viewRad) {
+    const c = [-rot[0], -rot[1]];
+    return { type: "GeometryCollection", geometries: pieces(obj).filter((p) => d3.geoDistance(c, p.c) - p.rad < viewRad).map((p) => p.g) };
+  }
+  const pathString = d3.geoPath(proj);
+  let baseKey = "";
   function draw(now) {
     now = now || performance.now();
     const r = R * zoom, cx = W / 2, cy = H / 2;
-    proj.rotate(rot).scale(r).translate([cx, cy]).clipExtent([[-8, -8], [W + 8, H + 8]]);
+    // zoomed in, the detailed outlines are already finer than a pixel, so skip the curve-smoothing resampling
+    proj.rotate(rot).scale(r).translate([cx, cy]).clipExtent([[-8, -8], [W + 8, H + 8]]).precision(zoom >= DETAIL_ZOOM ? 0 : 0.35);
     const view = `${rot[0].toFixed(3)},${rot[1].toFixed(3)},${zoom.toFixed(4)}`;
-    if (view !== lastView) { lastView = view; lastMove = now; }
-    const settled = now - lastMove > SETTLE_MS;
     if (zoom >= DETAIL_ZOOM) loadDetail();
-    const fine = settled && zoom >= DETAIL_ZOOM && !!detail;
+    const fine = zoom >= DETAIL_ZOOM && !!detail;
     const hist = history.current;
     const hd = fine && hist ? history.detailFor(hist) : null;
     const key = [view, W, H, dpr, fine ? 1 : 0, hist ? hist.year : "", hd ? 1 : 0, hist ? matchList.map((m) => m.e.id).join(",") : ""].join("|");
@@ -439,7 +470,6 @@ const globe = (() => {
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.clearRect(0, 0, W, H);
     drawPoints(now);
-    return !settled;
   }
   function drawBase(fine, hist, hd, r, cx, cy) {
     if (baseCv.width !== canvas.width || baseCv.height !== canvas.height) { baseCv.width = canvas.width; baseCv.height = canvas.height; }
@@ -457,23 +487,27 @@ const globe = (() => {
     g.fillStyle = og; g.beginPath(); path(SPHERE); g.fill();
 
     g.beginPath(); path(GRAT); g.strokeStyle = C.grat; g.lineWidth = 1; g.stroke();
-    const land = fine ? detail.land : LAND;
-    g.beginPath(); path(land); g.fillStyle = C.land; g.fill();
-    g.strokeStyle = C.landEdge; g.lineWidth = 0.8; g.stroke();
+    // how far from the centre of the view the screen reaches, as an angle on the globe
+    const viewRad = Math.min(HALF_PI, Math.asin(Math.min(1, Math.hypot(W, H) / 2 / r))) + 0.02;
+    const show = (o) => visible(o, viewRad);
+    // the land outline is worked out once and reused to fill, stroke and keep borders inside it
+    const land = new Path2D(pathString(show(fine ? detail.land : LAND)) || "");
+    g.fillStyle = C.land; g.fill(land);
+    g.strokeStyle = C.landEdge; g.lineWidth = 0.8; g.stroke(land);
     if (hist) {
       // borders of the time, kept to today's land; the polity each lit event fell in is shaded
       g.save();
-      g.beginPath(); path(land); g.clip();
+      g.clip(land);
       const shaded = new Set();
       for (const { e } of matchList) {
         let f = history.polityAt(hist, e.lng, e.lat);
         if (f && hd) f = hd.byName.get(f.properties.NAME) || f;
         if (f && !shaded.has(f)) { shaded.add(f); g.beginPath(); path(f); g.fillStyle = C.sandWash; g.fill(); }
       }
-      g.beginPath(); path(hd ? hd.mesh : hist.mesh); g.strokeStyle = C.landEdge; g.lineWidth = 0.6; g.globalAlpha = 0.85; g.stroke(); g.globalAlpha = 1;
+      g.beginPath(); path(show(hd ? hd.mesh : hist.mesh)); g.strokeStyle = C.landEdge; g.lineWidth = 0.6; g.globalAlpha = 0.85; g.stroke(); g.globalAlpha = 1;
       g.restore();
     } else {
-      g.beginPath(); path(fine ? detail.borders : BORDERS); g.lineWidth = 0.5; g.globalAlpha = 0.8; g.stroke(); g.globalAlpha = 1;
+      g.beginPath(); path(show(fine ? detail.borders : BORDERS)); g.lineWidth = 0.5; g.globalAlpha = 0.8; g.stroke(); g.globalAlpha = 1;
     }
 
     const sg = g.createRadialGradient(cx - r * 0.38, cy - r * 0.42, r * 0.1, cx, cy, r);
