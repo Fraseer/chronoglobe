@@ -469,7 +469,8 @@ const globe = (() => {
     now = now || performance.now();
     const r = R * zoom, cx = W / 2, cy = H / 2;
     // zoomed in, the detailed outlines are already finer than a pixel, so skip the curve-smoothing resampling
-    if (zoom >= DETAIL_ZOOM) detailed = true; else if (zoom < SIMPLE_ZOOM) detailed = false;
+    // test switch: with #hd in the address, use the detailed map at every zoom level
+    if (location.hash === "#hd" || zoom >= DETAIL_ZOOM) detailed = true; else if (zoom < SIMPLE_ZOOM) detailed = false;
     proj.rotate(rot).scale(r).translate([cx, cy]).clipExtent([[-8, -8], [W + 8, H + 8]]).precision(detailed ? 0 : 0.35);
     const view = `${rot[0].toFixed(3)},${rot[1].toFixed(3)},${zoom.toFixed(4)}`;
     if (detailed) loadDetail();
