@@ -311,9 +311,10 @@ const history = (() => {
     wanted = y;
     const snap = await forYear(y);
     if (wanted !== y || !snap || snap === current) return;
-    // zoomed in, keep the current detailed borders up until the new map's detailed set has arrived,
+    // keep the current borders up until the new map's detailed set has arrived,
     // so the globe never flashes the simpler version
-    if (globe.isDetailed()) { await loadDetailFor(snap); if (wanted !== y) return; }
+    await loadDetailFor(snap);
+    if (wanted !== y) return;
     current = snap;
     globe.request();
     renderBordersNote();
@@ -350,6 +351,22 @@ const globe = (() => {
   const DETAIL_ZOOM = 1.5, SIMPLE_ZOOM = 1.2;
   let detailed = false;
   let detail = null, detailLoading = false;
+  // zoomed out: the 1:50m map thinned to 15% of its points, which keeps every island and looks the
+  // same at whole-globe size for about the cost of 1:110m; it replaces 1:110m as soon as it arrives
+  let medium = null;
+  fetch("world-medium.json").then((r) => { if (!r.ok) throw new Error(r.status); return r.json(); })
+    .then((t) => {
+      // thinning can leave a piece wound inside-out, which d3 would fill as "the whole globe except this"
+      const land = topojson.feature(t, t.objects.land);
+      for (const f of land.features || [land]) {
+        const g = f.geometry;
+        const polys = g.type === "MultiPolygon" ? g.coordinates : [g.coordinates];
+        for (const p of polys) if (d3.geoArea({ type: "Polygon", coordinates: p }) > TAU) p.forEach((ring) => ring.reverse());
+      }
+      medium = { land, borders: topojson.mesh(t, t.objects.countries, (a, b) => a !== b) };
+      baseKey = ""; request();
+    })
+    .catch(() => {});
   function loadDetail() {
     if (detail || detailLoading) return;
     detailLoading = true;
@@ -469,14 +486,14 @@ const globe = (() => {
     now = now || performance.now();
     const r = R * zoom, cx = W / 2, cy = H / 2;
     // zoomed in, the detailed outlines are already finer than a pixel, so skip the curve-smoothing resampling
-    // test switch: with #hd in the address, use the detailed map at every zoom level
-    if (location.hash === "#hd" || zoom >= DETAIL_ZOOM) detailed = true; else if (zoom < SIMPLE_ZOOM) detailed = false;
+    if (zoom >= DETAIL_ZOOM) detailed = true; else if (zoom < SIMPLE_ZOOM) detailed = false;
     proj.rotate(rot).scale(r).translate([cx, cy]).clipExtent([[-8, -8], [W + 8, H + 8]]).precision(detailed ? 0 : 0.35);
     const view = `${rot[0].toFixed(3)},${rot[1].toFixed(3)},${zoom.toFixed(4)}`;
     if (detailed) loadDetail();
     const fine = detailed && !!detail;
     const hist = history.current;
-    const hd = fine && hist ? history.detailFor(hist) : null;
+    // the detailed historical borders are light enough to use at every zoom
+    const hd = hist ? history.detailFor(hist) : null;
     const key = [view, W, H, dpr, fine ? 1 : 0, hist ? hist.year : "", hd ? 1 : 0, hist ? matchList.map((m) => m.e.id).join(",") : ""].join("|");
     if (key !== baseKey) { baseKey = key; drawBase(fine, hist, hd, r, cx, cy); }
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
@@ -503,7 +520,8 @@ const globe = (() => {
     const viewRad = Math.min(HALF_PI, Math.asin(Math.min(1, Math.hypot(W, H) / 2 / r))) + 0.02;
     const show = (o) => visible(o, viewRad);
     // the land outline is worked out once and reused to fill, stroke and keep borders inside it
-    const land = new Path2D(pathString(show(fine ? detail.land : LAND)) || "");
+    const base = fine ? detail : medium;
+    const land = new Path2D(pathString(show(base ? base.land : LAND)) || "");
     g.fillStyle = C.land; g.fill(land);
     g.strokeStyle = C.landEdge; g.lineWidth = 0.8; g.stroke(land);
     if (hist) {
@@ -519,7 +537,7 @@ const globe = (() => {
       g.beginPath(); path(show(hd ? hd.mesh : hist.mesh)); g.strokeStyle = C.landEdge; g.lineWidth = 0.6; g.globalAlpha = 0.85; g.stroke(); g.globalAlpha = 1;
       g.restore();
     } else {
-      g.beginPath(); path(show(fine ? detail.borders : BORDERS)); g.lineWidth = 0.5; g.globalAlpha = 0.8; g.stroke(); g.globalAlpha = 1;
+      g.beginPath(); path(show(base ? base.borders : BORDERS)); g.lineWidth = 0.5; g.globalAlpha = 0.8; g.stroke(); g.globalAlpha = 1;
     }
 
     const sg = g.createRadialGradient(cx - r * 0.38, cy - r * 0.42, r * 0.1, cx, cy, r);

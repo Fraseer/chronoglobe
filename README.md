@@ -80,7 +80,8 @@ The repository root is the site. On GitHub Pages: **Settings → Pages → Build
 | `index.html` | Page markup |
 | `styles.css` | Styles, with light and dark themes |
 | `app.js` | The app: globe, timeline, sidebar, storage |
-| `world-110m.js` | World outline data for the whole-globe view (Natural Earth 1:110m) |
+| `world-110m.js` | Basic world outline, shown for a moment while the better maps load (Natural Earth 1:110m) |
+| `world-medium.json` | Zoomed-out map: Natural Earth 1:50m thinned to 15% of its points with mapshaper (`-simplify 15% keep-shapes`) |
 | `world-50m.json` | More detailed outlines (Natural Earth 1:50m), loaded once you zoom in |
 | `LICENSE` | GNU GPL v3.0 |
 | `firebase-config.js` | Firebase project for syncing (null = browser only) |
