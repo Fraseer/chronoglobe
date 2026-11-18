@@ -25,7 +25,9 @@ function mockFirebase(cloudUrl) {
   });
   const eventsOf = (uid) => ({
     doc: (id) => docRef(uid, id),
+    get: () => call("GET", null, "?uid=" + encodeURIComponent(uid)).then((rows) => ({ docs: rows.map((r) => ({ id: r.id, data: () => r.data })) })),
     onSnapshot(opts, next, error) {
+      if (typeof opts === "function") { error = next; next = opts; }
       let stopped = false, last = null;
       const pull = async () => {
         if (stopped) return;
@@ -521,7 +523,53 @@ function check(name, ok, info) {
   st = await narrowPhone.evaluate(() => ({ sw: document.documentElement.scrollWidth, btn: !document.querySelector("#signInBtn").hidden }));
   check("the phone header fits at 360px with the Sign in button", st.sw === 360 && st.btn, st);
   await narrowPhone.context().close();
-  await desk.context().close(); await phone.context().close(); cloudServer.close();
+  await desk.context().close(); await phone.context().close();
+
+  // ---------------------------------------------------------------- shared logbook for signed-out visitors
+  cloudDocs.clear();
+  cloudDocs.set("u-owner", new Map([
+    ["s1", { id: "s1", title: "Shared: Fall of Rome", year: 476, lat: 44.42, lng: 12.2, category: "politics", description: "x", createdAt: 1 }],
+    ["s2", { id: "s2", title: "Shared: Moon landing", year: 1969, lat: 28.6, lng: -80.6, category: "exploration", description: "x", createdAt: 2 }],
+  ]));
+  async function visitor(seed) {
+    const ctx = await browser.newContext({ viewport: { width: 1300, height: 860 }, reducedMotion: "reduce" });
+    await ctx.route(/fonts\.(googleapis|gstatic)\.com|googletagmanager/, (r) => r.fulfill({ body: "", contentType: "text/css" }));
+    await ctx.route("**/firebase-config.js*", (r) => r.fulfill({ body: 'window.CHRONOGLOBE_FIREBASE = { projectId: "test" }; window.CHRONOGLOBE_SHOWCASE = "u-owner";', contentType: "text/javascript" }));
+    const page = await ctx.newPage();
+    page.on("pageerror", (e) => errors.push(e.message));
+    await page.addInitScript(mockFirebase, CLOUD);
+    if (seed) await page.addInitScript(seed);
+    await page.goto(BASE); await page.waitForTimeout(1500);
+    return page;
+  }
+  const v = await visitor();
+  await v.click("#tabAll");
+  st = await v.evaluate(() => ({ sync: document.querySelector("#sync").textContent, n: document.querySelector("#countAll").textContent, add: document.querySelector("#addBtn").hidden, signIn: !document.querySelector("#signInBtn").hidden, titles: [...document.querySelectorAll("#listItems .ev .t")].map((t) => t.textContent) }));
+  check("a signed-out visitor sees the shared logbook, read-only", st.sync === "Shared logbook" && st.n === "2" && st.add && st.signIn && st.titles.includes("Shared: Moon landing"), st);
+  await v.dblclick('#listItems .ev[data-year="1969"]'); await v.waitForTimeout(800);
+  st = await v.evaluate(() => [...document.querySelectorAll("#detailView .btn")].map((b) => b.textContent));
+  check("a visitor can open an event but has no Edit or Delete", !st.includes("Edit") && !st.includes("Delete"), st);
+  await v.click("#detailView .btn.ghost");
+  await v.click("#signInBtn"); await v.waitForTimeout(1800);
+  st = await v.evaluate(() => ({ card: document.querySelector("#startCard").hidden ? null : document.querySelector("#startCard").innerText, n: document.querySelector("#countAll").textContent }));
+  check("a new account is offered the shared events or a fresh start", st.card && /Copy 2 events/.test(st.card) && /Start fresh/.test(st.card) && st.n === "0", st);
+  await v.click("#startCard .btn.primary"); await v.waitForTimeout(1200);
+  st = { n: await v.evaluate(() => document.querySelector("#countAll").textContent), mine: [...(cloudDocs.get("u-fraser") || new Map()).values()].map((d) => d.title).sort(), shared: cloudDocs.get("u-owner").size };
+  check("copying puts the shared events in the new account, leaving the shared logbook as it was", st.n === "2" && st.mine.join() === "Shared: Fall of Rome,Shared: Moon landing" && st.shared === 2, st);
+  await v.click("#tabAll"); await v.click(".data-tools .btn >> text=Sign out"); await v.waitForTimeout(1000);
+  st = await v.evaluate(() => ({ sync: document.querySelector("#sync").textContent, n: document.querySelector("#countAll").textContent }));
+  check("signing out goes back to the shared logbook", st.sync === "Shared logbook" && st.n === "2", st);
+  await v.context().close();
+  cloudDocs.delete("u-fraser");
+  const v2 = await visitor();
+  await v2.click("#signInBtn"); await v2.waitForTimeout(1800);
+  await v2.click("#startCard .btn >> text=Start fresh"); await v2.waitForTimeout(500);
+  st = { n: await v2.evaluate(() => document.querySelector("#countAll").textContent), card: await v2.evaluate(() => document.querySelector("#startCard").hidden), mine: (cloudDocs.get("u-fraser") || new Map()).size };
+  check("Start fresh leaves the new account empty and doesn't ask again", st.n === "0" && st.card && st.mine === 0, st);
+  await v2.reload(); await v2.waitForTimeout(1800);
+  check("the choice isn't offered again after reloading", await v2.evaluate(() => document.querySelector("#startCard").hidden));
+  await v2.context().close();
+  cloudServer.close();
 
   // ---------------------------------------------------------------- blocked storage
   const pb = await newPage({ viewport: { width: 1200, height: 800 } }, () => { Storage.prototype.setItem = function () { throw new DOMException("blocked", "SecurityError"); }; });

@@ -1302,6 +1302,9 @@ playBtn.addEventListener("click", () => { if (play) stopPlay(); else startPlay()
 // Storage: events are kept in this browser's localStorage
 // ======================================================================
 const canWrite = () => state.store === "local" || state.store === "cloud";
+// signed-out visitors see this account's logbook, read-only (see firebase-config.js)
+const SHOWCASE = typeof window.CHRONOGLOBE_SHOWCASE === "string" && window.CHRONOGLOBE_SHOWCASE ? window.CHRONOGLOBE_SHOWCASE : null;
+const ONBOARD_PREFIX = "chronoglobe:start-chosen:";
 const stamp = (e) => e.updatedAt || e.createdAt || 0;
 // starter events for a first visit, so the globe and timeline have something to show.
 // They carry an internal example flag (never shown) so removing one on a device doesn't bring it back from another.
@@ -1604,8 +1607,65 @@ function stopCloud() {
   lsSet(SIGNED_IN_KEY, "");
   const wasCloud = state.store === "cloud" || state.store === "connecting";
   cloud.user = null; cloud.seen = false;
-  // back to this browser's own logbook
-  if (wasCloud) initStore(); else { renderChrome(); renderView(); }
+  // back to the shared logbook if there is one, otherwise this browser's own
+  $("#startCard").hidden = true;
+  if (wasCloud) { if (SHOWCASE && cloud.available) startShowcase(); else initStore(); }
+  else { renderChrome(); renderView(); }
+}
+// signed out with a shared logbook configured: show its events live, read-only
+function startShowcase() {
+  if (cloud.unsub) { cloud.unsub(); cloud.unsub = null; }
+  clearTimeout(cloudWait);
+  Object.assign(cloud, { seen: false, failed: false });
+  state.store = "showcase";
+  state.events = [];
+  if (state.loaded) eventsChanged(); else renderView();
+  renderChrome();
+  cloud.unsub = cloud.db.collection("users").doc(SHOWCASE).collection("events").onSnapshot((snap) => {
+    if (snap.metadata.fromCache && !snap.docs.length && !cloud.seen) return;
+    state.events = snap.docs.map((d) => normEvent(d.id, d.data())).filter(Boolean);
+    const first = !cloud.seen, wasLoaded = state.loaded;
+    cloud.seen = true;
+    renderChrome();
+    eventsChanged();
+    if (first && wasLoaded && state.view === "list" && !state.selectedId && state.events.length) { chooseStart(); update(); }
+  }, (err) => {
+    // not readable (rules not published yet, or offline with nothing cached): fall back to this browser
+    console.warn("Chronoglobe: shared logbook unavailable", err && err.code);
+    if (cloud.unsub) { cloud.unsub(); cloud.unsub = null; }
+    if (state.store === "showcase") initStore();
+  });
+}
+// A brand-new account (nothing in it, nothing brought from this browser) chooses once: copy the shared
+// logbook's events to build on, or start with an empty one
+async function offerStart() {
+  const uid = cloud.user && cloud.user.uid;
+  if (!SHOWCASE || !uid || uid === SHOWCASE || state.events.length || lsGet(ONBOARD_PREFIX + uid)) return;
+  let shared;
+  try { shared = (await cloud.db.collection("users").doc(SHOWCASE).collection("events").get()).docs.map((d) => normEvent(d.id, d.data())).filter(Boolean); }
+  catch (_) { return; }
+  if (!shared.length || !cloud.user || cloud.user.uid !== uid || state.events.length) return;
+  const card = $("#startCard");
+  const done = (msg) => { lsSet(ONBOARD_PREFIX + uid, "1"); card.hidden = true; if (msg) toast(msg); };
+  const copy = h("button", { class: "btn primary", type: "button", text: `Copy ${yrsWord(shared.length, "event")}` });
+  copy.addEventListener("click", async () => {
+    copy.disabled = true; copy.textContent = "Copying…";
+    try {
+      const now = Date.now();
+      for (let i = 0; i < shared.length; i += 400) {
+        const batch = cloud.db.batch();
+        for (const e of shared.slice(i, i + 400)) batch.set(eventsCol().doc(e.id), toRow(Object.assign({}, e, { example: false, updatedAt: now })));
+        await batch.commit();
+      }
+      done(`Copied ${yrsWord(shared.length, "event")} to your logbook`);
+    } catch (err) { copy.disabled = false; copy.textContent = `Copy ${yrsWord(shared.length, "event")}`; cloudWriteFailed(err); }
+  });
+  card.replaceChildren(
+    h("span", { class: "g-round", text: "Welcome" }),
+    h("h2", { class: "g-title", text: "Start your logbook" }),
+    h("p", { class: "g-hint", text: `Copy the ${yrsWord(shared.length, "event")} you've been looking at, to edit and build on, or start with an empty logbook.` }),
+    h("div", { class: "g-actions" }, copy, h("button", { class: "btn", type: "button", text: "Start fresh", onclick: () => done("Your logbook is ready. Add your first event.") })));
+  card.hidden = false;
 }
 // the first time an account is used on this browser, its local events join the account
 // (newer copy wins), then the browser's own list is emptied so nothing is added twice
@@ -1619,7 +1679,7 @@ async function mergeLocalIntoCloud() {
   const have = new Map(state.events.map((e) => [e.id, e]));
   const local = readLocal().map((r) => normEvent(r && r.id, r)).filter(Boolean);
   const handled = new Set(local.map((e) => e.id));
-  const up = local.filter((e) => (firstEver || !e.example) && safeId(e.id))
+  const up = local.filter((e) => ((firstEver && !SHOWCASE) || !e.example) && safeId(e.id))
     .filter((e) => { const c = have.get(e.id); return !c || stamp(e) > stamp(c); });
   try {
     for (let i = 0; i < up.length; i += 400) {
@@ -1638,6 +1698,7 @@ async function mergeLocalIntoCloud() {
   lsSet(LOCAL_KEY, JSON.stringify(readLocal().filter((r) => !(r && handled.has(r.id)))));
   const n = up.filter((e) => !e.example).length;
   toast(n ? `Added ${yrsWord(n, "event")} from this browser to your account` : "Signed in. Your events sync between devices.");
+  if (!up.length) offerStart();
 }
 // ids Firestore accepts as document names
 function safeId(id) { return typeof id === "string" && id && id.length <= 80 && !id.includes("/") && id !== "." && id !== ".." && !/^__.*__$/.test(id); }
@@ -1690,6 +1751,7 @@ function renderChrome() {
   };
   const email = cloud.user && cloud.user.email ? cloud.user.email : "your Google account";
   if (cloud.available) labels.local[1] = "Events are stored in this browser only. Sign in to keep them in your account and see them on your other devices.";
+  labels.showcase = ["Shared logbook", "You're browsing a shared logbook. Sign in to keep your own."];
   labels.cloud = cloud.failed ? ["Not syncing", "Your synced events couldn't be loaded. Reload to try again."]
     : cloud.offline && (cloud.serverSeen || !navigator.onLine) ? ["Offline", "Changes are kept on this device and sync when you're back online."]
     : !cloud.serverSeen ? ["Connecting…", `Signed in as ${email}`]
@@ -1864,6 +1926,10 @@ function renderList() {
 }
 let listYear = null;
 function emptyState() {
+  if (state.store === "showcase") {
+    return h("div", { class: "empty" }, cloud.seen ? h("h3", { text: "The shared logbook is empty" }) : h("p", { text: "Loading the shared logbook…" }),
+      h("div", { class: "row" }, h("button", { class: "btn primary", type: "button", text: "Sign in to start your own", onclick: signIn })));
+  }
   if (state.store === "cloud") {
     const out = cloud.failed
       ? [h("h3", { text: "Couldn't load your synced events" }), h("p", { text: "Reload the page to try again, or sign out to use this browser on its own." })]
@@ -1896,7 +1962,9 @@ function emptyState() {
 }
 function dataTools() {
   const email = cloud.user && cloud.user.email ? cloud.user.email : "your Google account";
-  const text = state.store === "cloud"
+  const text = state.store === "showcase"
+    ? "This is a shared logbook, so it can't be changed here. Sign in to keep your own: you can copy these events to start from."
+    : state.store === "cloud"
     ? `Events are saved to ${email} and sync to every device where you sign in. Export a backup now and then to keep a copy of your own.`
     : state.store !== "local"
       ? "Changes can't be saved right now. Export a backup to keep a copy of your events."
@@ -1909,7 +1977,7 @@ function dataTools() {
       h("button", { class: "btn", type: "button", text: "Export backup", onclick: exportEvents }),
       canWrite() ? h("button", { class: "btn", type: "button", text: "Import backup", onclick: () => $("#importFile").click() }) : null,
       state.store === "cloud" ? h("button", { class: "btn ghost", type: "button", text: "Sign out", onclick: signOut }) : null,
-      cloud.available && state.store === "local" ? h("button", { class: "btn ghost", type: "button", text: "Sign in to sync", onclick: signIn }) : null));
+      cloud.available && (state.store === "local" || state.store === "showcase") ? h("button", { class: "btn ghost", type: "button", text: "Sign in to sync", onclick: signIn }) : null));
 }
 
 // ---------- selection & detail
@@ -2344,7 +2412,7 @@ window.__chronoglobe = Object.freeze({ flyTo: (lng, lat) => globe.flyTo(lng, lat
 renderChrome(); renderStats(); renderView(); update();
 $("#signInBtn").addEventListener("click", signIn);
 // signed in on this device before: wait for the account's events instead of flashing this browser's own
-if (window.CHRONOGLOBE_FIREBASE && lsGet(SIGNED_IN_KEY) === "1") {
+if (window.CHRONOGLOBE_FIREBASE && (lsGet(SIGNED_IN_KEY) === "1" || SHOWCASE) && /^https?:$/.test(location.protocol)) {
   cloudWait = setTimeout(() => { if (state.store === "connecting") initStore(); }, 10000);
 } else initStore();
 initCloud();
