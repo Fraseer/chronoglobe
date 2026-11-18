@@ -347,6 +347,16 @@ function check(name, ok, info) {
   st = await hb.evaluate(() => ({ note: document.querySelector("#hudBorders").textContent, then: [...document.querySelectorAll(".d-meta dt")].map((d) => d.textContent + ": " + d.nextElementSibling.textContent) }));
   check("the globe uses the border map nearest the year", st.note === "Borders c. 1492", st);
   check("event details say which state the place belonged to then", st.then.some((t) => /^Then: Ottoman Empire\s+map c\. 1492$/.test(t)), st);
+  // an event just outside its state's rough outline must find that state, not a whole-globe leftover shape
+  await hb.evaluate(() => {
+    const rows = JSON.parse(localStorage.getItem("chronoglobe:events:v1"));
+    rows.push({ id: "hastings", title: "Battle of Hastings", year: 1066, month: 10, day: 14, place: "Battle (Hastings), England", lat: 50.912, lng: 0.487, category: "conflict", description: "x", createdAt: 99 });
+    localStorage.setItem("chronoglobe:events:v1", JSON.stringify(rows));
+  });
+  await hb.reload(); await hb.waitForTimeout(1500);
+  await hb.click("#tabAll"); await hb.dblclick('#listItems .ev[data-year="1066"]'); await hb.waitForTimeout(2000);
+  st = await hb.evaluate(() => [...document.querySelectorAll(".d-meta dt")].map((d) => d.textContent + ": " + d.nextElementSibling.textContent).find((t) => t.startsWith("Then")));
+  check("the Battle of Hastings is placed in England, not a whole-globe shape", /^Then: England/.test(st || ""), st);
   await hb.fill("#yearInput", "200"); await hb.press("#yearInput", "Enter"); await hb.waitForTimeout(1500);
   check("moving the year swaps the border map", (await hb.evaluate(() => document.querySelector("#hudBorders").textContent)) === "Borders c. AD 200");
   await hb.context().close();

@@ -261,6 +261,12 @@ const history = (() => {
       .catch(() => []);   // opened from disk: keep today's borders
     return years;
   }
+  // keep only real, named states: each map also has a nameless "everywhere else" shape, merged
+  // during processing into one broken outline that covers the whole globe and would get shaded
+  function usable(fc) {
+    for (const f of fc.features) if (d3.geoArea(f) > TAU) rewind(f);
+    return fc.features.filter((f) => f.properties && f.properties.NAME && d3.geoArea(f) <= TAU);
+  }
   function rewind(f) {
     const g = f.geometry;
     if (g.type === "Polygon") g.coordinates.forEach((r) => r.reverse());
@@ -270,11 +276,10 @@ const history = (() => {
     if (!cache.has(s.file)) {
       cache.set(s.file, fetch(`borders/${s.file}.json`).then((r) => { if (!r.ok) throw new Error(r.status); return r.json(); })
         .then((t) => {
-          const fc = topojson.feature(t, t.objects.borders);
           // a few shapes come wound inside-out, which d3 reads as "everything but this"
-          for (const f of fc.features) if (d3.geoArea(f) > TAU) rewind(f);
+          const features = usable(topojson.feature(t, t.objects.borders));
           // only lines shared by two states: each map's own rough coastline would double the real one
-          return { year: s.year, file: s.file, features: fc.features, mesh: topojson.mesh(t, t.objects.borders, (a, b) => a !== b) };
+          return { year: s.year, file: s.file, features, mesh: topojson.mesh(t, t.objects.borders, (a, b) => a !== b) };
         })
         .catch(() => { cache.delete(s.file); return null; }));
     }
@@ -286,9 +291,8 @@ const history = (() => {
     if (!detailLoads.has(snap.file)) {
       detailLoads.set(snap.file, fetch(`borders/detail/${snap.file}.json`).then((r) => { if (!r.ok) throw new Error(r.status); return r.json(); })
         .then((t) => {
-          const fc = topojson.feature(t, t.objects.borders);
-          for (const f of fc.features) if (d3.geoArea(f) > TAU) rewind(f);
-          const d = { mesh: topojson.mesh(t, t.objects.borders, (a, b) => a !== b), byName: new Map(fc.features.map((f) => [f.properties.NAME, f])) };
+          const features = usable(topojson.feature(t, t.objects.borders));
+          const d = { features, mesh: topojson.mesh(t, t.objects.borders, (a, b) => a !== b), byName: new Map(features.map((f) => [f.properties.NAME, f])) };
           details.set(snap.file, d);
           return d;
         })
@@ -321,9 +325,12 @@ const history = (() => {
   }
   // the polity a point fell in; coasts and straits are simplified, so look up to ~60 km around it
   function polityAt(snap, lng, lat) {
-    const key = `${snap.year}:${lng}:${lat}`;
+    // the detailed shapes follow coasts far better, so use them once they're loaded
+    const d = details.get(snap.file);
+    const key = `${snap.year}:${d ? "d" : "c"}:${lng}:${lat}`;
     if (polities.has(key)) return polities.get(key);
-    const inside = (p) => snap.features.find((f) => d3.geoContains(f, p));
+    const shapes = d ? d.features : snap.features;
+    const inside = (p) => shapes.find((f) => d3.geoContains(f, p));
     let f = inside([lng, lat]);
     const k = 1 / Math.max(0.2, Math.cos((lat * Math.PI) / 180));
     for (let r = 0.15; !f && r <= 0.61; r += 0.15) {
@@ -332,7 +339,7 @@ const history = (() => {
     polities.set(key, f || null);
     return f || null;
   }
-  return { follow, forYear, polityAt, detailFor, get current() { return current; } };
+  return { follow, forYear, polityAt, detailFor, loadDetailFor, get current() { return current; } };
 })();
 
 const globe = (() => {
@@ -1915,7 +1922,8 @@ function renderDetail() {
   // which state the place belonged to at the time, from the nearest border map
   const then = h("span", { class: "then", text: "…" });
   add("Then", then);
-  history.forYear(e.year).then((snap) => {
+  history.forYear(e.year).then(async (snap) => {
+    if (snap) await history.loadDetailFor(snap);
     if (!snap) { then.closest("dd").previousElementSibling.remove(); then.closest("dd").remove(); return; }
     const f = history.polityAt(snap, e.lng, e.lat), p = f && f.properties;
     then.replaceChildren(p ? p.NAME + (p.SUBJECTO && p.SUBJECTO !== p.NAME ? ` (under ${p.SUBJECTO})` : "") : "No mapped state",
