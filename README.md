@@ -15,6 +15,7 @@ Built for keeping track of the events from daily history guessing games like [An
   - **Window** sets how close an event's year must be to count as a match (exact year up to ±100 years).
   - **Weighted / Even** changes the scale: weighted gives recent centuries more room.
 - **Sidebar**: *This year* lists the events in the current window; *Full timeline* shows everything in date order along a vertical spine, grouped by century, with a marker for the slider's year that moves as you scrub; clicking an event there lights it up, moves the timeline to its year and turns the globe to it while staying on the list, and double-clicking (or Enter) opens its details. An event's details also list the other events from the same year.
+- **Quiz me**: a guessing game on your own events. Each of up to 5 rounds shows an event's title; click the globe where you think it happened, enter the year, and see how close you were. Up to 5,000 points for the place (5,000 × e^(−km/1500)) and 5,000 for the year (5,000 × e^(−years off / (10 + 5% of the event's age))), so dates long ago are judged more leniently. Event dots, the timeline, the lists and the historical borders are hidden while you play.
 - **Add event**: title, year (BC/AD), optional day and month, place, optional category and description. Pick the place by typing a city or country and choosing from the suggestions (about 240 historic places and the 177 countries on the map are built in), or by clicking the globe.
 
 ## Syncing between devices

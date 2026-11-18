@@ -498,7 +498,7 @@ const globe = (() => {
     const view = `${rot[0].toFixed(3)},${rot[1].toFixed(3)},${zoom.toFixed(4)}`;
     if (detailed) loadDetail();
     const fine = detailed && !!detail;
-    const hist = history.current;
+    const hist = state.game ? null : history.current;
     // the detailed historical borders are light enough to use at every zoom
     const hd = hist ? history.detailFor(hist) : null;
     const key = [view, W, H, dpr, fine ? 1 : 0, hist ? hist.year : "", hd ? 1 : 0, hist ? matchList.map((m) => m.e.id).join(",") : ""].join("|");
@@ -557,6 +557,7 @@ const globe = (() => {
   function drawPoints(now) {
     fanK = fanProgress(now);
     hits = [];
+    if (state.game) { drawGame(now); return; }
     const far = [];
     const c = center();
     const lit = [];
@@ -630,6 +631,34 @@ const globe = (() => {
     if (labelAlpha > 0.01) drawLabels(fan ? labels.filter((L) => !fan.ids.includes(L.e.id)) : labels);
     const key = far.map((e) => e.id).join(",");
     if (key !== farKey) { farKey = key; farMatches = far; renderFar(far); }
+  }
+  // ---- quiz: the player's pin, and once revealed the real spot with a line between them
+  function drawGame(now) {
+    const g = state.game, c = center();
+    const at = (p) => (d3.geoDistance([p.lng, p.lat], c) < HALF_PI - 0.01 ? proj([p.lng, p.lat]) : null);
+    const e = g.pool[g.round];
+    if (g.revealed && g.guess && e) {
+      ctx.save(); ctx.setLineDash([5, 5]); ctx.lineWidth = 1.6; ctx.strokeStyle = C.ink; ctx.globalAlpha = 0.7;
+      ctx.beginPath(); path({ type: "LineString", coordinates: [[g.guess.lng, g.guess.lat], [e.lng, e.lat]] }); ctx.stroke();
+      ctx.restore();
+      const q = at(e);
+      if (q) {
+        const r = 14, grad = ctx.createRadialGradient(q[0], q[1], 0, q[0], q[1], r);
+        grad.addColorStop(0, C.flashCore); grad.addColorStop(0.17, C.flashCore); grad.addColorStop(0.38, C.sand); grad.addColorStop(0.62, C.glow); grad.addColorStop(1, C.glowEdge);
+        ctx.beginPath(); ctx.arc(q[0], q[1], r, 0, TAU); ctx.fillStyle = grad; ctx.fill();
+      }
+    }
+    if (g.guess) {
+      const p = at(g.guess);
+      if (p) {
+        ctx.lineCap = "round";
+        ctx.strokeStyle = C.halo; ctx.lineWidth = 5; crosshair(p[0], p[1]);
+        ctx.strokeStyle = C.ink; ctx.lineWidth = 2; crosshair(p[0], p[1]);
+        ctx.beginPath(); ctx.arc(p[0], p[1], 4, 0, TAU); ctx.fillStyle = C.rose; ctx.fill();
+        ctx.lineWidth = 1.5; ctx.strokeStyle = C.ink; ctx.stroke();
+      }
+    }
+    positionGamePop();
   }
   // ---- fan: events stacked on one spot spread into a ring so each can be picked
   let fan = null;   // { lng, lat, ids, t0, closing, from }
@@ -831,6 +860,15 @@ const globe = (() => {
 
   function onClick(ev) {
     const [x, y] = localXY(ev);
+    if (state.game) {
+      // quiz: a click on the globe drops (or moves) the player's pin until they've guessed
+      if (state.game.revealed || state.game.round >= state.game.pool.length) return;
+      if (Math.hypot(x - W / 2, y - H / 2) <= R * zoom) {
+        const ll = proj.invert([x, y]);
+        if (ll && Number.isFinite(ll[0]) && Number.isFinite(ll[1])) placeGuess(ll[1], ll[0]);
+      }
+      return;
+    }
     const hp = hitAt(x, y);
     if (state.view === "form") {
       const r = R * zoom;
@@ -2137,6 +2175,135 @@ function onScrubStart() {
   if (state.view === "detail") { state.view = "list"; state.tab = "now"; state.selectedId = null; confirmDelete = false; renderView(); }
 }
 
+// ======================================================================
+// Quiz: guess where and when your logged events happened
+// ======================================================================
+const QUIZ_ROUNDS = 5;
+// up to 5,000 for the place: 500 km ≈ 3,600, 1,500 km ≈ 1,800, the other side of the world ≈ 0
+const placePoints = (km) => Math.round(5000 * Math.exp(-km / 1500));
+// up to 5,000 for the year, judged against how long ago it was: 10 years out on 1969 ≈ 2,400,
+// 100 years out on 2560 BC ≈ 2,100
+const timePoints = (off, year) => Math.round(5000 * Math.exp(-off / (10 + 0.05 * Math.max(0, NOW_YEAR - year))));
+const fmtNum = (n) => n.toLocaleString("en");
+function startQuiz() {
+  if (!state.events.length) { toast("Add a few events first, then the quiz can test you on them."); return; }
+  stopPlay();
+  if (state.view === "form") closeForm();
+  closeDetail();
+  const pool = state.events.slice();
+  for (let i = pool.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [pool[i], pool[j]] = [pool[j], pool[i]]; }
+  state.game = { pool: pool.slice(0, Math.min(QUIZ_ROUNDS, pool.length)), round: 0, results: [], guess: null, revealed: false };
+  document.body.classList.add("gaming");
+  hideTip();
+  const v = globe.getView();
+  globe.flyTo(-v.rot[0], -v.rot[1], { zoom: 1 });
+  renderQuiz();
+  globe.request();
+}
+function quitQuiz() {
+  state.game = null;
+  document.body.classList.remove("gaming");
+  $("#gameCard").hidden = true; $("#gamePop").hidden = true;
+  renderView(); update(); globe.request();
+}
+function placeGuess(lat, lng) {
+  const g = state.game;
+  g.guess = { lat, lng };
+  renderQuiz();
+  globe.request();
+  const input = $("#gYear");
+  if (input) input.focus({ preventScroll: true });
+}
+function submitGuess() {
+  const g = state.game, e = g.pool[g.round];
+  const y = parseYear($("#gYear").value, $("#gEra").value);
+  if (y == null || Number.isNaN(y) || y > NOW_YEAR) {
+    const err = $("#gErr"); err.hidden = false;
+    err.textContent = y > NOW_YEAR ? `That's in the future. Enter ${NOW_YEAR} or earlier.` : "Enter a year, like 1066 or 44 BC.";
+    return;
+  }
+  const km = Math.round(d3.geoDistance([g.guess.lng, g.guess.lat], [e.lng, e.lat]) * 6371);
+  const off = Math.abs(y - e.year);
+  const r = { e, guessYear: y, km, off, place: placePoints(km), time: timePoints(off, e.year) };
+  r.total = r.place + r.time;
+  g.results.push(r);
+  g.revealed = true;
+  // frame both pins
+  const a = [g.guess.lng, g.guess.lat], b = [e.lng, e.lat], mid = d3.geoInterpolate(a, b)(0.5), d = d3.geoDistance(a, b);
+  globe.flyTo(mid[0], mid[1], { zoom: d < 0.03 ? 3 : d < 0.12 ? 2 : d < 0.5 ? 1.4 : 1 });
+  renderQuiz();
+}
+function nextRound() {
+  const g = state.game;
+  g.round++; g.guess = null; g.revealed = false;
+  const v = globe.getView();
+  globe.flyTo(-v.rot[0], -v.rot[1], { zoom: 1 });
+  renderQuiz();
+  globe.request();
+}
+function renderQuiz() {
+  const g = state.game, card = $("#gameCard"), pop = $("#gamePop");
+  if (!g) { card.hidden = true; pop.hidden = true; return; }
+  card.hidden = false;
+  const n = g.pool.length;
+  if (g.round >= n) {
+    const total = g.results.reduce((s, r) => s + r.total, 0);
+    card.replaceChildren(
+      h("span", { class: "g-round", text: "Final score" }),
+      h("span", { class: "g-score", text: `${fmtNum(total)}` }),
+      h("p", { class: "g-hint", text: `out of ${fmtNum(n * 10000)}` }),
+      h("div", { class: "g-rows" }, g.results.map((r) => h("div", { class: "g-row" },
+        h("span", { text: `${r.e.title} · ${fmtNum(r.km)} km, ${yrs(r.off)} out` }), h("b", { text: fmtNum(r.total) })))),
+      h("div", { class: "g-actions" },
+        h("button", { class: "btn primary", type: "button", text: "Play again", onclick: startQuiz }),
+        h("button", { class: "btn", type: "button", text: "Back to logbook", onclick: quitQuiz })));
+    pop.hidden = true;
+    return;
+  }
+  const e = g.pool[g.round], last = g.round === n - 1;
+  card.replaceChildren(...[
+    h("span", { class: "g-round", text: `Round ${g.round + 1} of ${n}` }),
+    h("h2", { class: "g-title", text: e.title }),
+    g.revealed ? null : h("p", { class: "g-hint", text: g.guess ? "Enter the year, or click the globe again to move your pin." : "Where did it happen? Click the globe." }),
+    h("div", { class: "g-actions" },
+      g.revealed ? h("button", { class: "btn primary", type: "button", text: last ? "See your score" : "Next round", onclick: nextRound }) : null,
+      h("button", { class: "btn ghost", type: "button", text: "Quit", onclick: quitQuiz }))].filter(Boolean));
+  if (!g.guess) { pop.hidden = true; return; }
+  pop.hidden = false;
+  if (!g.revealed) {
+    const keep = $("#gYear") ? [$("#gYear").value, $("#gEra").value] : ["", "AD"];
+    const era = h("select", { id: "gEra", "aria-label": "Era" }, h("option", { value: "AD", text: "AD" }), h("option", { value: "BC", text: "BC" }));
+    era.value = keep[1];
+    const year = h("input", { id: "gYear", inputmode: "numeric", autocomplete: "off", placeholder: "Year", value: keep[0],
+      onkeydown: (ev) => { if (ev.key === "Enter") { ev.preventDefault(); submitGuess(); } } });
+    pop.replaceChildren(h("span", { class: "g-lbl", text: "When did it happen?" }),
+      h("div", { class: "g-in" }, year, era, h("button", { class: "btn primary", type: "button", text: "Guess", onclick: submitGuess })),
+      h("p", { class: "g-err", id: "gErr", hidden: true }));
+  } else {
+    const r = g.results[g.results.length - 1];
+    pop.replaceChildren(
+      h("p", { class: "g-res" }, h("b", { text: fmtDate(e) }), e.place ? ` · ${e.place}` : ""),
+      h("p", { class: "g-res" }, `You guessed ${fmtYear(r.guessYear)}: `, h("b", { text: `${fmtNum(r.km)} km away` }), " and ", h("b", { text: r.off ? `${yrs(r.off)} out` : "the exact year" }), "."),
+      h("div", { class: "g-pts" }, h("span", { text: `Place ${fmtNum(r.place)}` }), h("span", { text: `Time ${fmtNum(r.time)}` }), h("strong", { text: fmtNum(r.total) })));
+  }
+  positionGamePop();
+}
+// keep the popup on its pin (the guess while guessing, the real spot once revealed)
+function positionGamePop() {
+  const g = state.game, pop = $("#gamePop");
+  if (!g || pop.hidden) return;
+  const e = g.pool[g.round];
+  const p = g.revealed && e ? { lng: e.lng, lat: e.lat } : g.guess;
+  if (!p) return;
+  const visible = globe.angleTo(p.lng, p.lat) < HALF_PI - 0.01;
+  pop.style.visibility = visible ? "visible" : "hidden";
+  if (!visible) return;
+  const [x, y] = globe.project(p.lng, p.lat);
+  pop.style.left = x + "px"; pop.style.top = y + "px";
+}
+$("#gameBtn").addEventListener("click", startQuiz);
+document.addEventListener("keydown", (ev) => { if (ev.key === "Escape" && state.game) quitQuiz(); });
+
 // ---------- toast
 let toastTimer = 0;
 function toast(msg) {
@@ -2159,7 +2326,7 @@ function resetIdle() {
   globe.stopSpin();
   clearTimeout(idleTimer);
   idleTimer = setTimeout(() => {
-    if (state.locked || play || state.scrubbing || state.view === "form" || document.hidden) { resetIdle(); return; }
+    if (state.locked || play || state.scrubbing || state.view === "form" || state.game || document.hidden) { resetIdle(); return; }
     globe.startIdleSpin();
   }, IDLE_MS);
 }
@@ -2168,7 +2335,7 @@ document.addEventListener("visibilitychange", () => { if (!document.hidden) rese
 resetIdle();
 
 // read-only hooks for the end-to-end tests
-window.__chronoglobe = Object.freeze({ fan: () => globe.fanPoints(), project: (lng, lat) => globe.project(lng, lat), idleSpinning: () => globe.isSpinning(), view: () => globe.getView(), labelsShown: () => globe.labelsShown(), spin: () => globe.spinSpeed(), fading: () => afterglow.size });
+window.__chronoglobe = Object.freeze({ flyTo: (lng, lat) => globe.flyTo(lng, lat), quiz: () => state.game && { round: state.game.round, rounds: state.game.pool.length, revealed: state.game.revealed, results: state.game.results.map((r) => r.total), e: state.game.pool[state.game.round] || null }, fan: () => globe.fanPoints(), project: (lng, lat) => globe.project(lng, lat), idleSpinning: () => globe.isSpinning(), view: () => globe.getView(), labelsShown: () => globe.labelsShown(), spin: () => globe.spinSpeed(), fading: () => afterglow.size });
 
 // ---------- boot
 renderChrome(); renderStats(); renderView(); update();

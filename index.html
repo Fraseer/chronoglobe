@@ -37,6 +37,10 @@
     <div class="top-right">
       <span class="sync" id="sync" data-state="connecting" title="">Connecting…</span>
       <button class="btn" id="signInBtn" type="button" hidden>Sign in to sync</button>
+      <button class="btn" id="gameBtn" type="button" title="Guess where and when your events happened">
+        <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true"><circle cx="8" cy="8" r="6.2" stroke="currentColor" stroke-width="1.6"/><circle cx="8" cy="8" r="2.4" fill="currentColor"/></svg>
+        Quiz me
+      </button>
       <button class="btn primary" id="addBtn" type="button">
         <svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true"><path d="M7 1.5v11M1.5 7h11" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
         Add event
@@ -54,6 +58,8 @@
         <p class="hud-borders" id="hudBorders" title="Historical borders are approximate. Source: historical-basemaps (GPL-3.0)." hidden></p>
       </div>
       <div class="pick-hint" id="pickHint" hidden>Click the globe where it happened</div>
+      <div class="game-card" id="gameCard" hidden></div>
+      <div class="game-pop" id="gamePop" hidden></div>
       <ul class="legend" aria-hidden="true">
         <li><i class="sw sw-match"></i>In the time window</li>
         <li><i class="sw sw-other"></i>Other events</li>

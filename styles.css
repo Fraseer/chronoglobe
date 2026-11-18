@@ -284,6 +284,39 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .form-err { margin: 0; color: var(--danger); font-size: 13px; font-weight: 500; }
 .form-actions { display: flex; gap: 8px; }
 
+/* ---------- quiz */
+body.gaming .timeline, body.gaming .panel, body.gaming .legend, body.gaming .hud, body.gaming #addBtn, body.gaming #gameBtn, body.gaming #signInBtn { display: none !important; }
+body.gaming .stage { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr); }
+@media (max-width: 900px) { body.gaming .globe-wrap { height: calc(100vh - 70px); } }
+.game-card {
+  position: absolute; z-index: 5; top: 14px; left: 50%; transform: translateX(-50%); width: min(560px, calc(100% - 32px));
+  background: var(--panel); border: 1px solid var(--line-2); border-radius: 12px; box-shadow: 0 8px 28px rgba(40, 30, 10, .16);
+  padding: 12px 18px 14px; text-align: center; display: grid; gap: 6px; justify-items: center;
+}
+.game-card .g-round { font-size: 11px; font-weight: 600; letter-spacing: .09em; text-transform: uppercase; color: var(--muted); }
+.game-card .g-title { margin: 0; font-family: var(--font-display); font-weight: 600; font-size: 26px; line-height: 1.15; text-wrap: balance; overflow-wrap: anywhere; }
+.game-card .g-hint { margin: 0; font-size: 13px; color: var(--ink-2); }
+.game-card .g-score { font-family: var(--font-display); font-size: 34px; font-weight: 600; }
+.game-card .g-rows { width: 100%; display: grid; gap: 2px; margin: 4px 0; text-align: left; }
+.game-card .g-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 10px; font-size: 13px; padding: 4px 6px; border-radius: 5px; }
+.game-card .g-row:nth-child(odd) { background: var(--raised); }
+.game-card .g-row b { font-family: var(--font-mono); font-weight: 500; font-variant-numeric: tabular-nums; }
+.game-card .g-actions { display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; margin-top: 2px; }
+.game-pop {
+  position: absolute; z-index: 6; left: 0; top: 0; transform: translate(-50%, calc(-100% - 18px)); min-width: 230px; max-width: min(300px, calc(100vw - 32px));
+  background: var(--raised); border: 1px solid var(--line-2); border-radius: 10px; box-shadow: 0 8px 24px rgba(40, 30, 10, .18); padding: 10px 12px; display: grid; gap: 8px;
+}
+.game-pop::after { content: ""; position: absolute; left: 50%; bottom: -7px; width: 12px; height: 12px; background: var(--raised); border-right: 1px solid var(--line-2); border-bottom: 1px solid var(--line-2); transform: translateX(-50%) rotate(45deg); }
+.game-pop .g-lbl { font-size: 12px; font-weight: 600; color: var(--ink-2); }
+.game-pop .g-in { display: grid; grid-template-columns: minmax(0, 1fr) 4.6rem auto; gap: 6px; }
+.game-pop input, .game-pop select { border: 1px solid var(--field-edge); border-radius: 6px; background: var(--raised); padding: 6px 8px; font-size: 14px; min-width: 0; }
+.game-pop input:focus, .game-pop select:focus { outline: 2px solid var(--ink); outline-offset: 0; border-color: var(--ink); }
+.game-pop .g-err { margin: 0; font-size: 12px; color: var(--danger); }
+.game-pop .g-res { margin: 0; font-size: 13px; color: var(--ink-2); }
+.game-pop .g-res b { color: var(--ink); }
+.game-pop .g-pts { display: flex; justify-content: space-between; gap: 10px; font-size: 12.5px; font-family: var(--font-mono); border-top: 1px solid var(--line); padding-top: 6px; }
+.game-pop .g-pts strong { font-size: 14px; }
+@media (max-width: 900px) { .game-pop input, .game-pop select { font-size: 16px; } }
 .toast {
   position: fixed; z-index: 40; left: 50%; bottom: calc(18px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%);
   background: var(--tip-bg); color: var(--tip-fg); padding: 8px 14px; border-radius: 999px; font-size: 13px; font-weight: 500;

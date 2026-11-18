@@ -361,6 +361,36 @@ function check(name, ok, info) {
   check("moving the year swaps the border map", (await hb.evaluate(() => document.querySelector("#hudBorders").textContent)) === "Borders c. AD 200");
   await hb.context().close();
 
+  // ---------------------------------------------------------------- quiz
+  const qz = await newPage({ viewport: { width: 1300, height: 860 } });
+  await qz.click("#gameBtn"); await qz.waitForTimeout(1500);
+  st = await qz.evaluate(() => ({ q: window.__chronoglobe.quiz(), card: document.querySelector("#gameCard").innerText, timeline: getComputedStyle(document.querySelector(".timeline")).display, panel: getComputedStyle(document.querySelector(".panel")).display }));
+  check("Quiz me starts a round showing only the event's title, with the timeline and lists hidden", st.q && st.q.rounds === 6 - 1 && st.card.includes(st.q.e.title) && st.timeline === "none" && st.panel === "none", { ...st, card: st.card.slice(0, 80) });
+  // aim at the real spot: turn the globe there, then click the centre
+  const qe = st.q.e;
+  await qz.evaluate(({ lng, lat }) => window.__chronoglobe.flyTo(lng, lat), { lng: qe.lng, lat: qe.lat }); await qz.waitForTimeout(1800);
+  const gq = await qz.locator("#globe").boundingBox();
+  const qpt = await qz.evaluate(({ lng, lat }) => window.__chronoglobe.project(lng, lat), { lng: qe.lng, lat: qe.lat });
+  await qz.mouse.click(gq.x + qpt[0], gq.y + qpt[1]); await qz.waitForTimeout(300);
+  check("clicking the globe drops a pin and asks for the year", await qz.isVisible("#gYear"));
+  const qd = qe.year <= 0 ? { n: String(1 - qe.year), era: "BC" } : { n: String(qe.year), era: "AD" };
+  await qz.fill("#gYear", qd.n); await qz.selectOption("#gEra", qd.era); await qz.press("#gYear", "Enter"); await qz.waitForTimeout(300);
+  st = await qz.evaluate(() => ({ q: window.__chronoglobe.quiz(), pop: document.querySelector("#gamePop").innerText }));
+  check("a near-perfect guess scores close to 10,000 and shows the answer", st.q.revealed && st.q.results[0] > 9800 && /exact year/.test(st.pop), { results: st.q.results, pop: st.pop.slice(0, 120) });
+  for (let i = 0; i < 4; i++) {
+    await qz.click("#gameCard .btn.primary"); await qz.waitForTimeout(300);
+    const g2 = await qz.locator("#globe").boundingBox();
+    await qz.mouse.click(g2.x + g2.width / 2, g2.y + g2.height / 2); await qz.waitForTimeout(200);
+    await qz.fill("#gYear", "1500"); await qz.click("#gamePop .btn.primary"); await qz.waitForTimeout(300);
+  }
+  await qz.click("#gameCard .btn.primary"); await qz.waitForTimeout(300);
+  st = await qz.evaluate(() => document.querySelector("#gameCard").innerText);
+  check("after the last round the card shows the final score and each round", /Final score/i.test(st) && /out of 50,000/.test(st), st.slice(0, 120));
+  await qz.click("#gameCard .btn >> text=Back to logbook"); await qz.waitForTimeout(300);
+  st = await qz.evaluate(() => ({ q: window.__chronoglobe.quiz(), timeline: getComputedStyle(document.querySelector(".timeline")).display }));
+  check("leaving the quiz brings the logbook back", !st.q && st.timeline !== "none", st);
+  await qz.context().close();
+
   // ---------------------------------------------------------------- idle spin after a minute
   const idle = await newPage({ viewport: { width: 1200, height: 800 } }, () => {
     const real = window.setTimeout;
