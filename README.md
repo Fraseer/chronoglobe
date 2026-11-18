@@ -28,7 +28,7 @@ With a Firebase project set in `firebase-config.js`, a **Sign in to sync** butto
 
 ### A shared logbook for visitors
 
-Set `window.CHRONOGLOBE_SHOWCASE` in `firebase-config.js` to an account's User UID (Firebase console → Authentication → Users), and put the same UID in place of `SHOWCASE_UID` in `firestore.rules`, then publish the rules. Signed-out visitors then see that account's events live, read-only: the globe, timeline, lists and quiz all work, but adding, editing, deleting and importing need a sign-in. The first time a new account signs in with an empty logbook, it's offered a choice, asked once per account on each browser: copy all the shared events to build on, or start fresh. With `CHRONOGLOBE_SHOWCASE = null`, signed-out visitors get their own logbook in the browser as before.
+Set `window.CHRONOGLOBE_SHOWCASE` in `firebase-config.js` to an account's User UID (Firebase console → Authentication → Users), and the same UID in the read rule in `firestore.rules`, then publish the rules. Signed-out visitors then see that account's events live, read-only: the globe, timeline, lists and quiz all work, but adding, editing, deleting and importing need a sign-in. The first time a new account signs in with an empty logbook, it's offered a choice, asked once per account on each browser: copy all the shared events to build on, or start fresh. With `CHRONOGLOBE_SHOWCASE = null`, signed-out visitors get their own logbook in the browser as before.
 
 ### Setting up Firebase
 

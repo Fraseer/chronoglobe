@@ -5,7 +5,7 @@ service cloud.firestore {
     // app's fields, each within a sensible size. The shared logbook's owner (the same User UID as
     // window.CHRONOGLOBE_SHOWCASE in firebase-config.js) can also be read by anyone, signed in or not.
     match /users/{uid}/events/{eventId} {
-      allow read: if (request.auth != null && request.auth.uid == uid) || uid == 'SHOWCASE_UID';
+      allow read: if (request.auth != null && request.auth.uid == uid) || uid == 'FPnusBVo3Yb2wdAtc46KwBdqeXs2';
       allow delete: if request.auth != null && request.auth.uid == uid;
       allow create, update: if request.auth != null && request.auth.uid == uid
         && eventId.size() <= 80

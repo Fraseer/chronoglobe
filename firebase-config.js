@@ -13,4 +13,4 @@ window.CHRONOGLOBE_FIREBASE = {
 // The account whose logbook signed-out visitors see, read-only (its Firebase Authentication "User UID").
 // Its events must also be made readable in firestore.rules. Set to null to give signed-out visitors
 // their own logbook in the browser instead.
-window.CHRONOGLOBE_SHOWCASE = null;
+window.CHRONOGLOBE_SHOWCASE = "FPnusBVo3Yb2wdAtc46KwBdqeXs2";
