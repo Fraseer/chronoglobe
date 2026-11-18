@@ -2179,11 +2179,13 @@ function onScrubStart() {
 // Quiz: guess where and when your logged events happened
 // ======================================================================
 const QUIZ_ROUNDS = 5;
-// up to 5,000 for the place: 500 km ≈ 3,600, 1,500 km ≈ 1,800, the other side of the world ≈ 0
-const placePoints = (km) => Math.round(5000 * Math.exp(-km / 1500));
-// up to 5,000 for the year, judged against how long ago it was: 10 years out on 1969 ≈ 2,400,
-// 100 years out on 2560 BC ≈ 2,100
-const timePoints = (off, year) => Math.round(5000 * Math.exp(-off / (10 + 0.05 * Math.max(0, NOW_YEAR - year))));
+// Both halves fall off gently for near misses and reach exactly 0 at a limit: (1 - off/limit)²
+const falloff = (off, limit) => Math.round(5000 * Math.pow(Math.max(0, 1 - off / limit), 2));
+// up to 5,000 for the place: 500 km ≈ 4,500, 2,000 km ≈ 3,200, 5,000 km ≈ 1,250, 10,000 km or more = 0
+const placePoints = (km) => falloff(km, 10000);
+// up to 5,000 for the year, with more leeway the longer ago it was: the limit is 50 years + 25% of
+// the event's age (62 years for 1977, about 680 for 480 BC)
+const timePoints = (off, year) => falloff(off, 50 + 0.25 * Math.max(0, NOW_YEAR - year));
 const fmtNum = (n) => n.toLocaleString("en");
 function startQuiz() {
   if (!state.events.length) { toast("Add a few events first, then the quiz can test you on them."); return; }
@@ -2253,7 +2255,8 @@ function renderQuiz() {
       h("span", { class: "g-score", text: `${fmtNum(total)}` }),
       h("p", { class: "g-hint", text: `out of ${fmtNum(n * 10000)}` }),
       h("div", { class: "g-rows" }, g.results.map((r) => h("div", { class: "g-row" },
-        h("span", { text: `${r.e.title} · ${fmtNum(r.km)} km, ${yrs(r.off)} out` }), h("b", { text: fmtNum(r.total) })))),
+        h("span", null, h("span", { text: r.e.title }), h("span", { class: "g-split", text: `${fmtNum(r.km)} km, ${yrs(r.off)} out · Place ${fmtNum(r.place)} · Time ${fmtNum(r.time)}` })),
+        h("b", { text: fmtNum(r.total) })))),
       h("div", { class: "g-actions" },
         h("button", { class: "btn primary", type: "button", text: "Play again", onclick: startQuiz }),
         h("button", { class: "btn", type: "button", text: "Back to logbook", onclick: quitQuiz })));

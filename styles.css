@@ -307,6 +307,8 @@ body.gaming .stage { grid-template-columns: minmax(0, 1fr); grid-template-rows: 
 .game-card .g-rows { width: 100%; display: grid; gap: 2px; margin: 4px 0; text-align: left; }
 .game-card .g-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 10px; font-size: 13px; padding: 4px 6px; border-radius: 5px; }
 .game-card .g-row:nth-child(odd) { background: var(--raised); }
+.game-card .g-row > span { display: grid; min-width: 0; }
+.game-card .g-split { font-size: 11.5px; color: var(--muted); }
 .game-card .g-row b { font-family: var(--font-mono); font-weight: 500; font-variant-numeric: tabular-nums; }
 .game-card .g-actions { display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; margin-top: 2px; }
 .game-pop {
