@@ -58,6 +58,10 @@ node tests/server.cjs 8080      # or: python3 -m http.server 8080
 
 then open <http://localhost:8080/>. Opening `index.html` straight from disk also works.
 
+## Updating
+
+After changing `app.js`, `styles.css`, `world-110m.js` or `firebase-config.js`, run `npm run stamp`. It updates the fingerprints on those links in `index.html`, so visitors never get the new page with an old cached script. `npm test` fails if a fingerprint is out of date.
+
 ## Tests
 
 End-to-end checks run in headless Chromium with Playwright:

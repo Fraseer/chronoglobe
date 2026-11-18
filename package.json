@@ -5,7 +5,8 @@
   "description": "A rotatable globe and draggable timeline for logging historical events",
   "scripts": {
     "start": "node tests/server.cjs 8080",
-    "test": "node tests/e2e.cjs"
+    "test": "node tests/stamp.cjs --check && node tests/e2e.cjs",
+    "stamp": "node tests/stamp.cjs"
   },
   "devDependencies": {
     "playwright": "^1.56.1"

@@ -76,7 +76,7 @@ function check(name, ok, info) {
     // keep tests offline: web fonts fall back to system faces, and sync stays off unless a test turns it on
     await ctx.route(/fonts\.(googleapis|gstatic)\.com/, (r) => r.fulfill({ body: "", contentType: "text/css" }));
     await ctx.route(/googletagmanager\.com/, (r) => r.fulfill({ body: "", contentType: "text/javascript" }));
-    await ctx.route("**/firebase-config.js", (r) => r.fulfill({ body: "window.CHRONOGLOBE_FIREBASE = null;", contentType: "text/javascript" }));
+    await ctx.route("**/firebase-config.js*", (r) => r.fulfill({ body: "window.CHRONOGLOBE_FIREBASE = null;", contentType: "text/javascript" }));
     const page = await ctx.newPage();
     page.on("pageerror", (e) => errors.push(e.message));
     page.on("console", (m) => { if (m.type() === "error") errors.push(m.text()); });
@@ -464,7 +464,7 @@ function check(name, ok, info) {
     const ctx = await browser.newContext({ viewport: { width: 1300, height: 860 }, reducedMotion: "reduce", ...opts });
     await ctx.route(/fonts\.(googleapis|gstatic)\.com/, (r) => r.fulfill({ body: "", contentType: "text/css" }));
     await ctx.route(/googletagmanager\.com/, (r) => r.fulfill({ body: "", contentType: "text/javascript" }));
-    await ctx.route("**/firebase-config.js", (r) => r.fulfill({ body: 'window.CHRONOGLOBE_FIREBASE = { projectId: "test" };', contentType: "text/javascript" }));
+    await ctx.route("**/firebase-config.js*", (r) => r.fulfill({ body: 'window.CHRONOGLOBE_FIREBASE = { projectId: "test" };', contentType: "text/javascript" }));
     const page = await ctx.newPage();
     page.on("pageerror", (e) => errors.push(e.message));
     await page.addInitScript(mockFirebase, CLOUD);
